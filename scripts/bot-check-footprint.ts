@@ -67,6 +67,7 @@ const BANNED_UPSTREAM_PATTERNS: ReadonlyArray<{ readonly pattern: RegExp; readon
 export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | null>> = {
   "apps/server/package.json": 6,
   "apps/server/src/server.ts": 10,
+  "apps/mobile/src/features/settings/environment-maintenance.test.ts": 10,
   "apps/server/src/cli/update.test.ts": 4,
   "apps/web/package.json": 6,
   "apps/web/src/components/CommandPalette.tsx": 18,
