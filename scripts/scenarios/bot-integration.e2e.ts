@@ -33,13 +33,14 @@ test(
       botsCount: 0,
     });
 
-    // 2. SidebarBotsBar renders and expands/collapses its independent state.
+    // 2. SidebarBotsBar renders expanded by default and collapses/expands its independent state.
     const botsBar = browser.locator('[data-testid="sidebar-bots-bar"]');
     await expect(botsBar).toBeVisible();
-    await botsBar.getByRole("button", { name: "Bots" }).click();
     await expect(botsBar.getByText("No bots yet")).toBeVisible();
     await botsBar.getByRole("button", { name: "Bots" }).click();
     await expect(botsBar.getByText("No bots yet")).toBeHidden();
+    await botsBar.getByRole("button", { name: "Bots" }).click();
+    await expect(botsBar.getByText("No bots yet")).toBeVisible();
 
     // 3. Settings -> Bots toggles the sidebar bar and persists across navigation without ClientSettings edits.
     await app.open("/settings/bots");
