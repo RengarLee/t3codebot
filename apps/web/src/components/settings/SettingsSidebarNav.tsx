@@ -15,7 +15,6 @@ import {
   CalendarClockIcon,
   FileDiffIcon,
   FolderTreeIcon,
-  BotMessageSquareIcon,
   GitBranchIcon,
   GlobeIcon,
   InfoIcon,
@@ -33,6 +32,7 @@ import {
   SmartphoneIcon,
   WrenchIcon,
   XIcon,
+  BotMessageSquareIcon,
 } from "lucide-react";
 import { resolveEventKeys } from "@t3tools/shared/keybindings";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -100,7 +100,6 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,
   "/settings/providers": BotIcon,
-  "/settings/bots": BotMessageSquareIcon,
   "/settings/threads": MessagesSquareIcon,
   "/settings/browser": GlobeIcon,
   "/settings/devices": SmartphoneIcon,
@@ -114,6 +113,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/labs": FlaskConicalIcon,
   "/settings/about": InfoIcon,
   "/settings/archived": ArchiveIcon,
+  "/settings/bots": BotMessageSquareIcon,
 };
 
 // Detail pages without a nav entry highlight the page that links to them.

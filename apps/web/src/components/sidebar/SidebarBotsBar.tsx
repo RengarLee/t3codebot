@@ -1,26 +1,26 @@
-import * as Schema from "effect/Schema";
-import { useGT } from "gt-react";
+import { createBotTranslator } from "@t3tools/bot/web/i18n";
+import { updateBotClientPreferences, useBotClientPreferences } from "@t3tools/bot/web/preferences";
+import { useSyncExternalStore } from "react";
 
-import { useLocalStorage } from "../../hooks/useLocalStorage";
-import { useClientSettings } from "../../hooks/useSettings";
+import { getI18nSnapshot, subscribeI18n } from "../../i18n/runtime";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 
 export function SidebarBotsBar() {
-  const gt = useGT();
-  const enabled = useClientSettings((settings) => settings.botsBarEnabled);
-  const [expanded, setExpanded] = useLocalStorage(
-    "t3code.sidebarBotsPanelOpen",
-    false,
-    Schema.Boolean,
-  );
+  const { locale } = useSyncExternalStore(subscribeI18n, getI18nSnapshot);
+  const t = createBotTranslator(locale);
+  const enabled = useBotClientPreferences((preferences) => preferences.botsBarEnabled);
+  const expanded = useBotClientPreferences((preferences) => preferences.sidebarBotsPanelOpen);
   if (!enabled) return null;
   return (
-    <div className="mx-0.5">
-      <CollapsibleSectionHeader expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        {gt("Bots")}
+    <div className="mx-0.5" data-testid="sidebar-bots-bar">
+      <CollapsibleSectionHeader
+        expanded={expanded}
+        onClick={() => updateBotClientPreferences({ sidebarBotsPanelOpen: !expanded })}
+      >
+        {t("bots.title")}
       </CollapsibleSectionHeader>
       {expanded && (
-        <p className="px-2 pb-2 text-xs text-sidebar-muted-foreground">{gt("No bots yet")}</p>
+        <p className="px-2 pb-2 text-xs text-sidebar-muted-foreground">{t("bots.empty")}</p>
       )}
     </div>
   );

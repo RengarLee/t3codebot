@@ -1,0 +1,314 @@
+name: Bot Verification Gate
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref or SHA to verify (defaults to triggering ref)."
+        required: false
+        default: ""
+        type: string
+      run_full_upstream_tests:
+        description: "Run sharded web, server, and desktop suites in addition to bot checks and E2E."
+        required: false
+        default: true
+        type: boolean
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_full_upstream_tests:
+        description: "Run sharded web, server, and desktop suites in addition to bot checks and E2E."
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bot-verify-${{ inputs.ref || github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  footprint_and_quality:
+    name: Footprint, Lint, i18n & Knip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+            !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
+          sparse-checkout-cone-mode: false
+
+      - name: Check upstream conflict footprint
+        run: node scripts/bot-check-footprint.ts --committed-only
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Cache Electron download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('node_modules/.pnpm/electron@*/node_modules/electron/package.json') }}
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Check i18n catalogs
+        run: vp run i18n:check
+
+      - name: Check unused code (knip)
+        run: vp run knip:check
+
+      - name: Check format & lint
+        run: vp check
+
+  typecheck_and_bot_tests:
+    name: Typecheck & Bot Unit Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+            !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
+          sparse-checkout-cone-mode: false
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Typecheck workspace
+        run: vp run typecheck
+
+      - name: Run @t3tools/bot unit tests
+        run: vp run --filter @t3tools/bot test
+
+      - name: Run bot automation & glue unit tests
+        run: |
+          vp test run \
+            scripts/bot-check-footprint.test.ts \
+            scripts/bot-upstream-sync.test.ts \
+            packages/shared/src/cliRelease.test.ts \
+            apps/web/src/components/settings/settingsSearch.test.ts
+
+  e2e_scenarios:
+    name: Full-Stack E2E Scenarios
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+            !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
+          sparse-checkout-cone-mode: false
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Resolve Playwright version
+        id: playwright_version
+        run: echo "version=$(node -p "require('./scripts/node_modules/playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Chromium and FFmpeg
+        id: chromium_cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-e2e-chromium-ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
+
+      - name: Install Chromium and FFmpeg for E2E scenarios
+        if: steps.chromium_cache.outputs.cache-hit != 'true'
+        run: node scripts/node_modules/playwright-core/cli.js install chromium ffmpeg
+
+      - name: Install Chromium system dependencies
+        run: node scripts/node_modules/playwright-core/cli.js install-deps chromium
+
+      - name: Build production web bundle & verify boot
+        run: |
+          vp run --filter @t3tools/web build
+          node apps/web/scripts/verify-built-boot.ts
+
+      - name: Run Bot & Core Replay E2E Scenarios
+        run: |
+          vp run scenarios --target web \
+            scenarios/bot-integration.e2e.ts \
+            scenarios/replay-turn-streams.e2e.ts
+
+      - name: Upload E2E artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bot-e2e-artifacts
+          path: .t3/scenarios
+          if-no-files-found: ignore
+          retention-days: 7
+
+  web_tests:
+    name: Web Tests (${{ matrix.shard }}/2)
+    if: ${{ inputs.run_full_upstream_tests != false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+            !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
+          sparse-checkout-cone-mode: false
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Resolve Playwright version
+        id: playwright_version
+        run: echo "version=$(node -p "require('./apps/web/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Chromium
+        id: chromium_cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
+
+      - name: Install Chromium for web browser tests
+        if: steps.chromium_cache.outputs.cache-hit != 'true'
+        run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
+
+      - name: Install missing Chromium system dependencies
+        run: |
+          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
+          test -n "$browser"
+          if ldd "$browser" | grep '=> not found'; then
+            node apps/web/node_modules/playwright/cli.js install-deps chromium
+          fi
+
+      - name: Run web tests
+        run: vp run --filter @t3tools/web test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+
+  server_tests:
+    name: Server Tests (${{ matrix.shard }}/4)
+    if: ${{ inputs.run_full_upstream_tests != false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+            !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
+          sparse-checkout-cone-mode: false
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Install Chromium for server browser integration tests
+        run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+
+      - name: Run server tests
+        run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+
+  desktop_and_packages_tests:
+    name: Desktop & Shared Packages Tests
+    if: ${{ inputs.run_full_upstream_tests != false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+            !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
+          sparse-checkout-cone-mode: false
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Cache Electron download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('node_modules/.pnpm/electron@*/node_modules/electron/package.json') }}
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Install native build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config build-essential
+
+      - name: Run desktop & packages tests
+        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test
+
+  verify_gate:
+    name: All Verifications Passed
+    needs:
+      [
+        footprint_and_quality,
+        typecheck_and_bot_tests,
+        e2e_scenarios,
+        web_tests,
+        server_tests,
+        desktop_and_packages_tests,
+      ]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Assert all required verification jobs succeeded
+        shell: bash
+        run: |
+          set -euo pipefail
+          results=(
+            "footprint_and_quality:${{ needs.footprint_and_quality.result }}"
+            "typecheck_and_bot_tests:${{ needs.typecheck_and_bot_tests.result }}"
+            "e2e_scenarios:${{ needs.e2e_scenarios.result }}"
+            "web_tests:${{ needs.web_tests.result }}"
+            "server_tests:${{ needs.server_tests.result }}"
+            "desktop_and_packages_tests:${{ needs.desktop_and_packages_tests.result }}"
+          )
+          failed=0
+          for entry in "${results[@]}"; do
+            name="${entry%%:*}"
+            status="${entry##*:}"
+            echo "$name: $status"
+            if [[ "$status" != "success" && "$status" != "skipped" ]]; then
+              failed=1
+            fi
+          done
+          if [[ "$failed" -ne 0 ]]; then
+            echo "::error::Verification gate failed; blocking merge and release."
+            exit 1
+          fi

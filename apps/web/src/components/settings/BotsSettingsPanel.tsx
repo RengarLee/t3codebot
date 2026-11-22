@@ -1,27 +1,29 @@
-import { useGT } from "gt-react";
+import { createBotTranslator } from "@t3tools/bot/web/i18n";
+import { updateBotClientPreferences, useBotClientPreferences } from "@t3tools/bot/web/preferences";
+import { useSyncExternalStore } from "react";
 
-import { updateClientSettings, useClientSettings } from "../../hooks/useSettings";
+import { getI18nSnapshot, subscribeI18n } from "../../i18n/runtime";
 import { Switch } from "../ui/switch";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
-import { useSearchableSetting } from "./settingsSearch";
 
 export function BotsSettingsPanel() {
-  const gt = useGT();
-  const searchableSetting = useSearchableSetting();
-  const enabled = useClientSettings((settings) => settings.botsBarEnabled);
-  const setting = searchableSetting("bots-bar");
+  const { locale } = useSyncExternalStore(subscribeI18n, getI18nSnapshot);
+  const t = createBotTranslator(locale);
+  const enabled = useBotClientPreferences((preferences) => preferences.botsBarEnabled);
+  const title = t("bots.settings.showBar.title");
   return (
     <SettingsPageContainer>
-      <SettingsSection title={gt("Bots")}>
+      <SettingsSection title={t("bots.title")}>
         <SettingsRow
-          {...setting}
+          id="bots-bar"
+          title={title}
           devicePreference
-          description={gt("Show the bar below the search field in the sidebar.")}
+          description={t("bots.settings.showBar.description")}
           control={
             <Switch
               checked={enabled}
-              onCheckedChange={(checked) => void updateClientSettings({ botsBarEnabled: checked })}
-              aria-label={setting.title}
+              onCheckedChange={(checked) => updateBotClientPreferences({ botsBarEnabled: checked })}
+              aria-label={title}
             />
           }
         />

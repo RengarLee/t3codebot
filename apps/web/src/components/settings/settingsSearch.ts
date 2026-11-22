@@ -16,6 +16,7 @@ import { writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import type { MessageResolver } from "../../i18n/messages";
 import { commandLabel } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
+import { BOT_SETTINGS_SEARCH_ITEMS } from "@t3tools/bot/web/settingsMeta";
 
 export type SettingsPath =
   | "/settings/projects"
@@ -28,7 +29,6 @@ export type SettingsPath =
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
-  | "/settings/bots"
   | "/settings/threads"
   | "/settings/browser"
   | "/settings/devices"
@@ -41,7 +41,8 @@ export type SettingsPath =
   | "/settings/maintenance"
   | "/settings/labs"
   | "/settings/about"
-  | "/settings/archived";
+  | "/settings/archived"
+  | "/settings/bots";
 
 export type SettingsSearchScope =
   | "environment"
@@ -104,7 +105,6 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/keybindings": msg("Keybindings"),
   "/settings/snap-shot": msg("SnapShots"),
   "/settings/providers": msg("Providers"),
-  "/settings/bots": msg("Bots"),
   "/settings/threads": msg("Threads"),
   "/settings/browser": msg("Browser"),
   "/settings/devices": msg("Devices"),
@@ -119,6 +119,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/about": msg("About"),
   "/settings/voice": msg("Voice"),
   "/settings/archived": msg("Archive"),
+  "/settings/bots": "Bots",
 };
 
 /** Sidebar labels; an entry of its own lets a translator shorten one below its page title. */
@@ -1051,12 +1052,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
-    id: "bots-bar",
-    title: msg("Show Bots Bar"),
-    to: "/settings/bots",
-    searchTerms: [msg("Sidebar")],
-  },
-  {
     id: "usage-providers",
     title: msg("Usage providers"),
     to: "/settings/providers",
@@ -1488,6 +1483,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/archived",
     searchTerms: [msg("restore reopen deleted history projects")],
   },
+  ...BOT_SETTINGS_SEARCH_ITEMS,
 ] as const satisfies ReadonlyArray<SettingsSearchItem>;
 
 export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
@@ -1505,7 +1501,6 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/snap-shot": null,
   "/settings/keybindings": null,
   "/settings/providers": null,
-  "/settings/bots": null,
   "/settings/threads": null,
   "/settings/browser": null,
   "/settings/devices": null,
@@ -1519,6 +1514,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/labs": null,
   "/settings/about": null,
   "/settings/archived": "project-defaults",
+  "/settings/bots": null,
 };
 
 const RENAMED_SETTINGS_PATHS: Readonly<Record<string, SettingsPath>> = {
