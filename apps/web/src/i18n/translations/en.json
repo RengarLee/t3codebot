@@ -12467,5 +12467,9 @@
   "27d76249d09eb69f": "Review guide ready",
   "faa3bb26abb39c93": "Review guide failed",
   "b7df38b7d8792d78": "Open guide",
-  "9e91e9a77b664e4e": "Could not start a review guide"
+  "9e91e9a77b664e4e": "Could not start a review guide",
+  "085f3d64c434cafd": "Bots",
+  "c22b2f04cd0f6071": "No bots yet",
+  "eac4754c54c128e2": "Show Bots Bar",
+  "b4eb3703a8b2cbad": "Show the bar below the search field in the sidebar."
 }
