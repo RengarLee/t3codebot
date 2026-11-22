@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 
 export const BOT_API_PREFIX = "/api/bots";
 export const BOT_HEALTH_ROUTE = `${BOT_API_PREFIX}/health` as const;
+export const BOT_LIST_ROUTE = `${BOT_API_PREFIX}/list` as const;
 
 export const BOT_CLIENT_PREFERENCES_STORAGE_KEY = "t3codebot.clientPreferences.v1";
 export const BOT_LEGACY_SIDEBAR_OPEN_STORAGE_KEY = "t3code.sidebarBotsPanelOpen";
@@ -23,3 +24,21 @@ export const DEFAULT_BOT_CLIENT_PREFERENCES: BotClientPreferences = {
   botsBarEnabled: true,
   sidebarBotsPanelOpen: false,
 };
+
+export const BotSummarySchema = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  status: Schema.String,
+  summary: Schema.String,
+  version: Schema.String,
+  sessionMode: Schema.String,
+  skillsCount: Schema.Int,
+  path: Schema.String,
+});
+export type BotSummary = typeof BotSummarySchema.Type;
+
+export const BotListResponseSchema = Schema.Struct({
+  directory: Schema.String,
+  bots: Schema.Array(BotSummarySchema),
+});
+export type BotListResponse = typeof BotListResponseSchema.Type;

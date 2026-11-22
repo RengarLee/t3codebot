@@ -1,23 +1,51 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePath from "@effect/platform-node/NodePath";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import { BOT_HEALTH_ROUTE, BotHealthResponseSchema } from "../contracts.ts";
 import { createBotHealthPayload } from "./http.ts";
+import { listStateDirBots, parseBotYaml } from "./registry.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
 const decodeHealthResponse = Schema.decodeSync(BotHealthResponseSchema);
+const nodeLayer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer);
 
 describe("bot server module", () => {
   it("builds a schema-valid health payload on /api/bots/health", () => {
     expect(BOT_HEALTH_ROUTE).toBe("/api/bots/health");
-    const payload = createBotHealthPayload();
+    const payload = createBotHealthPayload(2);
     expect(decodeHealthResponse(payload)).toEqual({
       ok: true,
       module: "t3codebot",
-      botsCount: 0,
+      botsCount: 2,
+    });
+  });
+
+  it("parses bot.yaml metadata fields cleanly", () => {
+    const parsed = parseBotYaml(
+      [
+        "# comment",
+        'id: "11111111-2222-4333-8444-555555555555"',
+        'name: "个人总管"',
+        'version: "0.2.0"',
+        'status: "active" # draft | active',
+        'summary: "日程统筹与待办跟踪"',
+        "runtime:",
+        '  session_mode: "fresh_per_run"',
+      ].join("\n"),
+    );
+    expect(parsed).toEqual({
+      id: "11111111-2222-4333-8444-555555555555",
+      name: "个人总管",
+      version: "0.2.0",
+      status: "active",
+      summary: "日程统筹与待办跟踪",
+      sessionMode: "fresh_per_run",
     });
   });
 
@@ -29,6 +57,51 @@ describe("bot server module", () => {
       expect(paths.sqlitePath).toContain("bots.sqlite");
       expect(paths.sqlitePath).not.toContain("statev2.sqlite");
       expect(paths.configPath).toContain("bots-config.json");
-    }).pipe(Effect.provide(NodePath.layer)),
+    }).pipe(Effect.provide(nodeLayer)),
+  );
+
+  it.effect("discovers bots under <stateDir>/bots while skipping internal directories", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fs.makeTempDirectoryScoped();
+      const botsDir = path.join(stateDir, "bots");
+
+      yield* fs.makeDirectory(path.join(botsDir, "_shared"), { recursive: true });
+      yield* fs.makeDirectory(path.join(botsDir, "_template"), { recursive: true });
+      yield* fs.makeDirectory(path.join(botsDir, ".local"), { recursive: true });
+
+      const botId = "11111111-2222-4333-8444-555555555555";
+      const botDir = path.join(botsDir, botId);
+      yield* fs.makeDirectory(path.join(botDir, "skills", "daily-briefing"), { recursive: true });
+      yield* fs.writeFileString(
+        path.join(botDir, "bot.yaml"),
+        [
+          `id: "${botId}"`,
+          'name: "个人总管"',
+          'version: "0.1.0"',
+          'status: "active"',
+          'summary: "统筹日程与任务"',
+          "runtime:",
+          '  session_mode: "fresh_per_run"',
+          "",
+        ].join("\n"),
+      );
+      yield* fs.writeFileString(
+        path.join(botDir, "skills", "daily-briefing", "SKILL.md"),
+        "# Daily Briefing\n",
+      );
+
+      const result = yield* listStateDirBots(stateDir);
+      expect(result.directory).toBe(botsDir);
+      expect(result.bots).toHaveLength(1);
+      expect(result.bots[0]).toMatchObject({
+        id: botId,
+        name: "个人总管",
+        status: "active",
+        summary: "统筹日程与任务",
+        skillsCount: 1,
+      });
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 });

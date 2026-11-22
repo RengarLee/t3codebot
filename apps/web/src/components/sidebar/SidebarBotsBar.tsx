@@ -1,8 +1,10 @@
 import { createBotTranslator } from "@t3tools/bot/web/i18n";
 import { updateBotClientPreferences, useBotClientPreferences } from "@t3tools/bot/web/preferences";
+import { SidebarBotsList } from "@t3tools/bot/web/SidebarBotsSection";
 import { useSyncExternalStore } from "react";
 
 import { getI18nSnapshot, subscribeI18n } from "../../i18n/runtime";
+import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "../../state/environments";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 
 export function SidebarBotsBar() {
@@ -10,6 +12,7 @@ export function SidebarBotsBar() {
   const t = createBotTranslator(locale);
   const enabled = useBotClientPreferences((preferences) => preferences.botsBarEnabled);
   const expanded = useBotClientPreferences((preferences) => preferences.sidebarBotsPanelOpen);
+  const httpBaseUrl = useEnvironmentHttpBaseUrl(usePrimaryEnvironmentId());
   if (!enabled) return null;
   return (
     <div className="mx-0.5" data-testid="sidebar-bots-bar">
@@ -19,9 +22,7 @@ export function SidebarBotsBar() {
       >
         {t("bots.title")}
       </CollapsibleSectionHeader>
-      {expanded && (
-        <p className="px-2 pb-2 text-xs text-sidebar-muted-foreground">{t("bots.empty")}</p>
-      )}
+      {expanded && <SidebarBotsList locale={locale} httpBaseUrl={httpBaseUrl} />}
     </div>
   );
 }
