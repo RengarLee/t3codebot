@@ -8,6 +8,14 @@
       "types": "./src/contracts.ts",
       "import": "./src/contracts.ts"
     },
+    "./server/db": {
+      "types": "./src/server/db.ts",
+      "import": "./src/server/db.ts"
+    },
+    "./server/eventSync": {
+      "types": "./src/server/eventSync.ts",
+      "import": "./src/server/eventSync.ts"
+    },
     "./server/host": {
       "types": "./src/server/host.ts",
       "import": "./src/server/host.ts"
@@ -23,6 +31,10 @@
     "./web/apiClient": {
       "types": "./src/web/apiClient.ts",
       "import": "./src/web/apiClient.ts"
+    },
+    "./web/BotsSettingsView": {
+      "types": "./src/web/BotsSettingsView.tsx",
+      "import": "./src/web/BotsSettingsView.tsx"
     },
     "./web/SidebarBotsSection": {
       "types": "./src/web/SidebarBotsSection.tsx",

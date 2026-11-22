@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePath from "@effect/platform-node/NodePath";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -9,7 +10,7 @@ import * as Schema from "effect/Schema";
 
 import { BOT_HEALTH_ROUTE, BotHealthResponseSchema } from "../contracts.ts";
 import { createBotHealthPayload } from "./http.ts";
-import { listStateDirBots, parseBotYaml } from "./registry.ts";
+import { createBotInStateDir, listStateDirBots, parseBotYaml } from "./registry.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
 const decodeHealthResponse = Schema.decodeSync(BotHealthResponseSchema);
@@ -102,6 +103,28 @@ describe("bot server module", () => {
         summary: "统筹日程与任务",
         skillsCount: 1,
       });
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
+  it.effect("creates a new bot under <stateDir>/bots and rejects duplicate names", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const stateDir = yield* fs.makeTempDirectoryScoped();
+
+      const created = yield* createBotInStateDir(stateDir, {
+        name: "代码评审助手",
+        summary: "盯 PR 和测试回归",
+      });
+      expect(created.name).toBe("代码评审助手");
+      expect(created.summary).toBe("盯 PR 和测试回归");
+      expect(created.status).toBe("active");
+
+      const duplicate = yield* Effect.exit(createBotInStateDir(stateDir, { name: "代码评审助手" }));
+      expect(Exit.isFailure(duplicate)).toBe(true);
+
+      const listed = yield* listStateDirBots(stateDir);
+      expect(listed.bots).toHaveLength(1);
+      expect(listed.bots[0]?.id).toBe(created.id);
     }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 });

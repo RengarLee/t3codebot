@@ -1,7 +1,15 @@
 import * as Effect from "effect/Effect";
-import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
-import { BOT_LIST_ROUTE, BotListResponseSchema, type BotListResponse } from "../contracts.ts";
+import {
+  BOT_CREATE_ROUTE,
+  BOT_LIST_ROUTE,
+  BotCreateResponseSchema,
+  BotListResponseSchema,
+  type BotCreateInput,
+  type BotCreateResponse,
+  type BotListResponse,
+} from "../contracts.ts";
 
 export interface BotApiClientOptions {
   readonly httpBaseUrl?: string | null | undefined;
@@ -50,4 +58,23 @@ export function fetchBotList(options?: BotApiClientOptions): Promise<BotListResp
       Effect.provide(FetchHttpClient.layer),
     ),
   );
+}
+
+export async function createBot(
+  input: BotCreateInput,
+  options?: BotApiClientOptions,
+): Promise<BotCreateResponse> {
+  const request = HttpClientRequest.post(buildBotUrl(BOT_CREATE_ROUTE, options?.httpBaseUrl)).pipe(
+    HttpClientRequest.bodyJsonUnsafe(input),
+  );
+
+  const decoded = await Effect.runPromise(
+    HttpClient.execute(request).pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(BotCreateResponseSchema)),
+      Effect.provide(FetchHttpClient.layer),
+    ),
+  );
+  notifyBotsServerStateChanged();
+  return decoded;
 }

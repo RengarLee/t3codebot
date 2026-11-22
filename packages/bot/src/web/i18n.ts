@@ -47,6 +47,62 @@ export const BOT_MESSAGES = {
     ru: "Показывать панель под полем поиска в боковой панели.",
     sv: "Visar fältet under sökfältet i sidopanelen.",
   },
+  "bots.create.title": {
+    en: "Create bot",
+    zh: "创建机器人",
+  },
+  "bots.create.paletteDescription": {
+    en: "Give a new bot a name and a purpose",
+    zh: "为新机器人设置名称和作用",
+  },
+  "bots.create.newBot": {
+    en: "New bot",
+    zh: "新机器人",
+  },
+  "bots.create.namePlaceholder": {
+    en: "Bot name",
+    zh: "机器人名称",
+  },
+  "bots.create.nameHint": {
+    en: "Next, describe what it does",
+    zh: "下一步填写机器人的作用",
+  },
+  "bots.create.purposePlaceholder": {
+    en: "What does this bot do?",
+    zh: "机器人的作用",
+  },
+  "bots.create.purposeHint": {
+    en: "Describe what this bot is responsible for",
+    zh: "描述这个机器人负责做什么",
+  },
+  "bots.create.nameEmptyHint": {
+    en: "Enter a bot name and press Enter to continue.",
+    zh: "输入机器人名称，按 Enter 继续。",
+  },
+  "bots.create.purposeEmptyHint": {
+    en: "Describe what the bot does and press Enter to create it.",
+    zh: "描述机器人的作用，按 Enter 创建。",
+  },
+  "bots.create.next": {
+    en: "Next",
+    zh: "下一步",
+  },
+  "bots.create.submit": {
+    en: "Create",
+    zh: "创建",
+  },
+  "bots.create.creating": {
+    en: "Creating",
+    zh: "创建中",
+  },
+  "bots.create.failed": {
+    en: "Could not create the bot.",
+    zh: "创建机器人失败。",
+  },
+  "bots.list.title": {
+    en: "Local Bots",
+    zh: "本地机器人",
+  },
 } as const;
 
 export type BotMessageKey = keyof typeof BOT_MESSAGES;
