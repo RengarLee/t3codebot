@@ -80,6 +80,85 @@ export function withBotThreadDetails<P extends HostDetailsProps>(Host: Component
   };
 }
 
+export function countBotActiveSessionStatuses(
+  activeSessions: ReadonlyArray<EnvironmentThreadShell>,
+  threadLastVisitedAtById: Readonly<Record<string, string | undefined>>,
+): { readonly attentionCount: number; readonly runningCount: number; readonly doneCount: number } {
+  let attentionCount = 0;
+  let runningCount = 0;
+  let doneCount = 0;
+  for (const thread of activeSessions) {
+    const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+    const lastVisitedAt = resolveThreadLastVisitedAt(
+      thread.lastVisitedAt,
+      threadLastVisitedAtById[scopedThreadKey(threadRef)],
+    );
+    const status = resolveSidebarRowStatus({ ...thread, lastVisitedAt });
+    if (status === "approval" || status === "input" || status === "request") {
+      attentionCount += 1;
+    } else if (status === "preparing" || status === "working" || status === "waiting") {
+      runningCount += 1;
+    } else if (status === "ready" && hasUnseenCompletion({ ...thread, lastVisitedAt })) {
+      doneCount += 1;
+    }
+  }
+  return { attentionCount, runningCount, doneCount };
+}
+
+export function BotSessionStatusPills({
+  attentionCount,
+  attentionLabel,
+  runningCount,
+  runningLabel,
+  doneCount,
+  doneLabel,
+  testIdPrefix = "bot-overview",
+}: {
+  readonly attentionCount: number;
+  readonly attentionLabel: string;
+  readonly runningCount: number;
+  readonly runningLabel: string;
+  readonly doneCount: number;
+  readonly doneLabel: string;
+  readonly testIdPrefix?: string;
+}) {
+  if (attentionCount === 0 && runningCount === 0 && doneCount === 0) return null;
+  return (
+    <>
+      {attentionCount > 0 ? (
+        <span
+          aria-label={`${attentionLabel} ${attentionCount}`}
+          data-testid={`${testIdPrefix}-attention-count`}
+          className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-2xs font-medium leading-none text-warning-foreground"
+        >
+          <MessageCircleQuestionIcon aria-hidden className="size-3 shrink-0" />
+          {attentionCount}
+        </span>
+      ) : null}
+      {runningCount > 0 ? (
+        <span
+          aria-label={`${runningLabel} ${runningCount}`}
+          data-testid={`${testIdPrefix}-running-count`}
+          className="inline-flex items-center gap-1 rounded-full bg-info/15 px-1.5 py-0.5 text-2xs font-medium leading-none text-info-foreground"
+        >
+          <CircleDashedIcon aria-hidden className="size-3 shrink-0" />
+          {runningCount}
+        </span>
+      ) : null}
+      {doneCount > 0 ? (
+        <span
+          aria-label={`${doneLabel} ${doneCount}`}
+          data-testid={`${testIdPrefix}-done-count`}
+          className="inline-flex items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.5 text-2xs font-medium leading-none text-success-foreground"
+        >
+          <CircleCheckIcon aria-hidden className="size-3 shrink-0" />
+          {doneCount}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 function BotThreadDetails({
   anchor,
   handle,
@@ -98,24 +177,10 @@ function BotThreadDetails({
   const isSettled = (thread: EnvironmentThreadShell) => thread.settledOverride === "settled";
   const active = sortThreadsForSidebar(sessions.filter((thread) => !isSettled(thread)));
   const settled = sortSettledThreads(sessions.filter(isSettled));
-  let attentionCount = 0;
-  let runningCount = 0;
-  let doneCount = 0;
-  for (const thread of active) {
-    const threadRef = scopeThreadRef(thread.environmentId, thread.id);
-    const lastVisitedAt = resolveThreadLastVisitedAt(
-      thread.lastVisitedAt,
-      threadLastVisitedAtById[scopedThreadKey(threadRef)],
-    );
-    const status = resolveSidebarRowStatus({ ...thread, lastVisitedAt });
-    if (status === "approval" || status === "input" || status === "request") {
-      attentionCount += 1;
-    } else if (status === "preparing" || status === "working" || status === "waiting") {
-      runningCount += 1;
-    } else if (status === "ready" && hasUnseenCompletion({ ...thread, lastVisitedAt })) {
-      doneCount += 1;
-    }
-  }
+  const { attentionCount, runningCount, doneCount } = countBotActiveSessionStatuses(
+    active,
+    threadLastVisitedAtById,
+  );
   const openThread = (id: ThreadId) =>
     void navigate({ to: "/$environmentId/$threadId", params: { environmentId, threadId: id } });
   return (
@@ -167,36 +232,14 @@ function BotSessionDropdownRow({ row }: { readonly row: BotOverviewDropdownRow }
       >
         <span className="min-w-0 flex-1 truncate">{row.label}</span>
         <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
-          {row.attentionCount > 0 ? (
-            <span
-              aria-label={`${row.attentionLabel} ${row.attentionCount}`}
-              data-testid="bot-overview-attention-count"
-              className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-2xs font-medium leading-none text-warning-foreground"
-            >
-              <MessageCircleQuestionIcon aria-hidden className="size-3 shrink-0" />
-              {row.attentionCount}
-            </span>
-          ) : null}
-          {row.runningCount > 0 ? (
-            <span
-              aria-label={`${row.runningLabel} ${row.runningCount}`}
-              data-testid="bot-overview-running-count"
-              className="inline-flex items-center gap-1 rounded-full bg-info/15 px-1.5 py-0.5 text-2xs font-medium leading-none text-info-foreground"
-            >
-              <CircleDashedIcon aria-hidden className="size-3 shrink-0" />
-              {row.runningCount}
-            </span>
-          ) : null}
-          {row.doneCount > 0 ? (
-            <span
-              aria-label={`${row.doneLabel} ${row.doneCount}`}
-              data-testid="bot-overview-done-count"
-              className="inline-flex items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.5 text-2xs font-medium leading-none text-success-foreground"
-            >
-              <CircleCheckIcon aria-hidden className="size-3 shrink-0" />
-              {row.doneCount}
-            </span>
-          ) : null}
+          <BotSessionStatusPills
+            attentionCount={row.attentionCount}
+            attentionLabel={row.attentionLabel}
+            runningCount={row.runningCount}
+            runningLabel={row.runningLabel}
+            doneCount={row.doneCount}
+            doneLabel={row.doneLabel}
+          />
           {row.totalCount !== null ? (
             <span
               data-testid={`bot-overview-${row.kind}-count`}

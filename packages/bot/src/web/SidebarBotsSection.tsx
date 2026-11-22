@@ -19,6 +19,8 @@ export interface SidebarBotsSectionProps {
   readonly renderBotIcon: (botName: string) => ReactNode;
   /** Host hover card around a bot row, like the host's thread hover card. */
   readonly renderBotRow: (row: ReactElement, bot: BotSummary) => ReactNode;
+  /** Optional host trailing badges (e.g. active session status pills) for a bot row. */
+  readonly renderBotTrailing?: (bot: BotSummary) => ReactNode;
 }
 
 /** Shaped like a project folder in the grouped sidebar: a header row over its bot rows. */
@@ -31,6 +33,7 @@ export function SidebarBotsSection({
   onOpenThread,
   renderBotIcon,
   renderBotRow,
+  renderBotTrailing,
 }: SidebarBotsSectionProps) {
   const t = createBotTranslator(locale);
   const bots = useBotList(httpBaseUrl);
@@ -100,7 +103,9 @@ export function SidebarBotsSection({
                     >
                       {renderBotIcon(bot.name)}
                       <span className="min-w-0 flex-1 truncate">{bot.name}</span>
-                      {bot.activeTasksCount > 0 ? (
+                      {renderBotTrailing ? (
+                        renderBotTrailing(bot)
+                      ) : bot.activeTasksCount > 0 ? (
                         <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground">
                           {bot.activeTasksCount}
                         </span>

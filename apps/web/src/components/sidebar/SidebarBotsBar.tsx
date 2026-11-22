@@ -1,4 +1,5 @@
 import { useBotProjectIds } from "@t3tools/bot/web/botList";
+import { createBotTranslator } from "@t3tools/bot/web/i18n";
 import { updateBotClientPreferences, useBotClientPreferences } from "@t3tools/bot/web/preferences";
 import { SidebarBotsSection } from "@t3tools/bot/web/SidebarBotsSection";
 import type { BotSummary } from "@t3tools/bot/contracts";
@@ -13,6 +14,7 @@ import {
   useServerConfigs,
   useThreadShell,
   useThreadShells,
+  useThreadShellsForProjectRefs,
 } from "../../state/entities";
 import {
   useEnvironmentHttpBaseUrl,
@@ -27,6 +29,8 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { resolveThreadRouteTarget } from "../../threadRoutes";
+import { useUiStateStore } from "../../uiStateStore";
+import { BotSessionStatusPills, countBotActiveSessionStatuses } from "../bots/BotThreadDetails";
 import { getTriggerDisplayModelName } from "../chat/providerIconUtils";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
@@ -81,9 +85,58 @@ export function SidebarBotsBar() {
               </ThreadHoverCardPopup>
             </Tooltip>
           )}
+          renderBotTrailing={(bot) =>
+            environmentId === null || bot.projectId === null ? null : (
+              <BotSidebarStatusPills
+                bot={bot}
+                environmentId={environmentId}
+                projectId={ProjectId.make(bot.projectId)}
+                locale={locale}
+              />
+            )
+          }
         />
       </TooltipProvider>
     </div>
+  );
+}
+
+function BotSidebarStatusPills({
+  bot,
+  environmentId,
+  projectId,
+  locale,
+}: {
+  readonly bot: BotSummary;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly locale: string | undefined;
+}) {
+  const t = createBotTranslator(locale);
+  const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const activeSessions = useThreadShellsForProjectRefs([{ environmentId, projectId }]).filter(
+    (thread) =>
+      thread.archivedAt === null &&
+      thread.id !== bot.homeThreadId &&
+      thread.settledOverride !== "settled",
+  );
+  const { attentionCount, runningCount, doneCount } = countBotActiveSessionStatuses(
+    activeSessions,
+    threadLastVisitedAtById,
+  );
+  if (attentionCount === 0 && runningCount === 0 && doneCount === 0) return null;
+  return (
+    <span className="flex shrink-0 items-center gap-1 tabular-nums">
+      <BotSessionStatusPills
+        attentionCount={attentionCount}
+        attentionLabel={t("bots.overview.needsAttention")}
+        runningCount={runningCount}
+        runningLabel={t("bots.overview.running")}
+        doneCount={doneCount}
+        doneLabel={t("bots.overview.done")}
+        testIdPrefix={`sidebar-bot-${bot.id}`}
+      />
+    </span>
   );
 }
 
