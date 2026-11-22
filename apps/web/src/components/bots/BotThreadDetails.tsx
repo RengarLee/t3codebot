@@ -98,6 +98,7 @@ function BotThreadDetails({
   const isSettled = (thread: EnvironmentThreadShell) => thread.settledOverride === "settled";
   const active = sortThreadsForSidebar(sessions.filter((thread) => !isSettled(thread)));
   const settled = sortSettledThreads(sessions.filter(isSettled));
+  let attentionCount = 0;
   let runningCount = 0;
   let doneCount = 0;
   for (const thread of active) {
@@ -107,7 +108,9 @@ function BotThreadDetails({
       threadLastVisitedAtById[scopedThreadKey(threadRef)],
     );
     const status = resolveSidebarRowStatus({ ...thread, lastVisitedAt });
-    if (status === "preparing" || status === "working") {
+    if (status === "approval" || status === "input" || status === "request") {
+      attentionCount += 1;
+    } else if (status === "preparing" || status === "working" || status === "waiting") {
       runningCount += 1;
     } else if (status === "ready" && hasUnseenCompletion({ ...thread, lastVisitedAt })) {
       doneCount += 1;
@@ -122,6 +125,7 @@ function BotThreadDetails({
         locale={locale}
         activeSessionIds={active.map((thread) => thread.id)}
         settledSessionIds={settled.map((thread) => thread.id)}
+        attentionCount={attentionCount}
         doneCount={doneCount}
         runningCount={runningCount}
         renderSession={(id, onSelect) => {
@@ -163,6 +167,16 @@ function BotSessionDropdownRow({ row }: { readonly row: BotOverviewDropdownRow }
       >
         <span className="min-w-0 flex-1 truncate">{row.label}</span>
         <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
+          {row.attentionCount > 0 ? (
+            <span
+              aria-label={`${row.attentionLabel} ${row.attentionCount}`}
+              data-testid="bot-overview-attention-count"
+              className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-2xs font-medium leading-none text-warning-foreground"
+            >
+              <MessageCircleQuestionIcon aria-hidden className="size-3 shrink-0" />
+              {row.attentionCount}
+            </span>
+          ) : null}
           {row.runningCount > 0 ? (
             <span
               aria-label={`${row.runningLabel} ${row.runningCount}`}

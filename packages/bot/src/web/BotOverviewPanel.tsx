@@ -12,12 +12,15 @@ export interface BotOverviewDropdownRow {
   readonly label: string;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
-  /** Shown on the Active row after Running when > 0. */
-  readonly doneCount: number;
-  readonly doneLabel: string;
-  /** Shown on the Active row before Done when > 0. */
+  /** Shown first on the Active row when > 0 (approval / input / guest request). */
+  readonly attentionCount: number;
+  readonly attentionLabel: string;
+  /** Shown on the Active row before Done when > 0 (preparing / working / waiting). */
   readonly runningCount: number;
   readonly runningLabel: string;
+  /** Shown on the Active row after Running when > 0 (unseen completion). */
+  readonly doneCount: number;
+  readonly doneLabel: string;
   /** Shown on the Settled row; omitted on Active. */
   readonly totalCount: number | null;
   readonly content: ReactNode;
@@ -28,6 +31,7 @@ export interface BotOverviewPanelProps {
   /** Unsettled sessions, in the host's sidebar order. Home is left out. */
   readonly activeSessionIds: ReadonlyArray<string>;
   readonly settledSessionIds: ReadonlyArray<string>;
+  readonly attentionCount: number;
   readonly doneCount: number;
   readonly runningCount: number;
   /** Host thread row for one session, as an `<li>`. */
@@ -40,6 +44,7 @@ export function BotOverviewPanel({
   locale,
   activeSessionIds,
   settledSessionIds,
+  attentionCount,
   doneCount,
   runningCount,
   renderSession,
@@ -60,6 +65,8 @@ export function BotOverviewPanel({
         open: openSection === "active",
         onOpenChange: (open) =>
           setOpenSection(open ? "active" : openSection === "active" ? null : openSection),
+        attentionCount,
+        attentionLabel: t("bots.overview.needsAttention"),
         doneCount,
         doneLabel: t("bots.overview.done"),
         runningCount,
@@ -82,6 +89,8 @@ export function BotOverviewPanel({
         open: openSection === "settled",
         onOpenChange: (open) =>
           setOpenSection(open ? "settled" : openSection === "settled" ? null : openSection),
+        attentionCount: 0,
+        attentionLabel: t("bots.overview.needsAttention"),
         doneCount: 0,
         doneLabel: t("bots.overview.done"),
         runningCount: 0,
