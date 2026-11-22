@@ -1,4 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
+
+import type { BotSummary } from "../contracts.ts";
 
 import { ensureBotHome, notifyBotsServerStateChanged } from "./apiClient.ts";
 import { useBotList } from "./botList.ts";
@@ -15,6 +17,8 @@ export interface SidebarBotsSectionProps {
   readonly onOpenThread: (threadId: string) => void;
   /** Host icon for a bot, so bots look like the host's project icons. */
   readonly renderBotIcon: (botName: string) => ReactNode;
+  /** Host hover card around a bot row, like the host's thread hover card. */
+  readonly renderBotRow: (row: ReactElement, bot: BotSummary) => ReactNode;
 }
 
 /** Shaped like a project folder in the grouped sidebar: a header row over its bot rows. */
@@ -26,6 +30,7 @@ export function SidebarBotsSection({
   activeProjectId,
   onOpenThread,
   renderBotIcon,
+  renderBotRow,
 }: SidebarBotsSectionProps) {
   const t = createBotTranslator(locale);
   const bots = useBotList(httpBaseUrl);
@@ -81,25 +86,28 @@ export function SidebarBotsSection({
               const current = bot.projectId !== null && bot.projectId === activeProjectId;
               return (
                 <li key={bot.id}>
-                  <button
-                    type="button"
-                    aria-current={current ? "page" : undefined}
-                    disabled={openingBotId !== null}
-                    onClick={() => void openHome(bot.id, bot.projectId)}
-                    className={`flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default ${
-                      current
-                        ? "bg-sidebar-row-active text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70"
-                        : "text-sidebar-foreground/85 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                    } ${openingBotId === bot.id ? "opacity-60" : ""}`}
-                  >
-                    {renderBotIcon(bot.name)}
-                    <span className="min-w-0 flex-1 truncate">{bot.name}</span>
-                    {bot.activeTasksCount > 0 ? (
-                      <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground">
-                        {bot.activeTasksCount}
-                      </span>
-                    ) : null}
-                  </button>
+                  {renderBotRow(
+                    <button
+                      type="button"
+                      aria-current={current ? "page" : undefined}
+                      disabled={openingBotId !== null}
+                      onClick={() => void openHome(bot.id, bot.projectId)}
+                      className={`flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default ${
+                        current
+                          ? "bg-sidebar-row-active text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70"
+                          : "text-sidebar-foreground/85 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                      } ${openingBotId === bot.id ? "opacity-60" : ""}`}
+                    >
+                      {renderBotIcon(bot.name)}
+                      <span className="min-w-0 flex-1 truncate">{bot.name}</span>
+                      {bot.activeTasksCount > 0 ? (
+                        <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground">
+                          {bot.activeTasksCount}
+                        </span>
+                      ) : null}
+                    </button>,
+                    bot,
+                  )}
                   {failedBotId === bot.id ? (
                     <p className="px-2.5 pb-1 text-xs text-destructive">
                       {t("bots.home.openFailed")}
