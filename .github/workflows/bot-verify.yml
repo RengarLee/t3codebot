@@ -163,7 +163,7 @@ jobs:
 
   web_tests:
     name: Web Tests (${{ matrix.shard }}/2)
-    if: ${{ inputs.run_full_upstream_tests != false }}
+    if: ${{ github.event_name == 'pull_request' || inputs.run_full_upstream_tests != false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -212,7 +212,7 @@ jobs:
 
   server_tests:
     name: Server Tests (${{ matrix.shard }}/4)
-    if: ${{ inputs.run_full_upstream_tests != false }}
+    if: ${{ github.event_name == 'pull_request' || inputs.run_full_upstream_tests != false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -241,7 +241,7 @@ jobs:
 
   desktop_and_packages_tests:
     name: Desktop & Shared Packages Tests
-    if: ${{ inputs.run_full_upstream_tests != false }}
+    if: ${{ github.event_name == 'pull_request' || inputs.run_full_upstream_tests != false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
