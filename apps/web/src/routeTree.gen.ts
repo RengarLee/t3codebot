@@ -46,6 +46,7 @@ import { Route as ChatSettingsDevicesRouteImport } from './routes/_chat.settings
 import { Route as ChatSettingsConnectionsRouteImport } from './routes/_chat.settings.connections'
 import { Route as ChatSettingsChatRouteImport } from './routes/_chat.settings.chat'
 import { Route as ChatSettingsBrowserRouteImport } from './routes/_chat.settings.browser'
+import { Route as ChatSettingsBotsRouteImport } from './routes/_chat.settings.bots'
 import { Route as ChatSettingsBetaRouteImport } from './routes/_chat.settings.beta'
 import { Route as ChatSettingsArchivedRouteImport } from './routes/_chat.settings.archived'
 import { Route as ChatSettingsAppearanceRouteImport } from './routes/_chat.settings.appearance'
@@ -244,6 +245,11 @@ const ChatSettingsBrowserRoute = ChatSettingsBrowserRouteImport.update({
   path: '/browser',
   getParentRoute: () => ChatSettingsRoute,
 } as any)
+const ChatSettingsBotsRoute = ChatSettingsBotsRouteImport.update({
+  id: '/bots',
+  path: '/bots',
+  getParentRoute: () => ChatSettingsRoute,
+} as any)
 const ChatSettingsBetaRoute = ChatSettingsBetaRouteImport.update({
   id: '/beta',
   path: '/beta',
@@ -310,6 +316,7 @@ export interface FileRoutesByFullPath {
   '/settings/appearance': typeof ChatSettingsAppearanceRoute
   '/settings/archived': typeof ChatSettingsArchivedRoute
   '/settings/beta': typeof ChatSettingsBetaRoute
+  '/settings/bots': typeof ChatSettingsBotsRoute
   '/settings/browser': typeof ChatSettingsBrowserRoute
   '/settings/chat': typeof ChatSettingsChatRoute
   '/settings/connections': typeof ChatSettingsConnectionsRoute
@@ -356,6 +363,7 @@ export interface FileRoutesByTo {
   '/settings/appearance': typeof ChatSettingsAppearanceRoute
   '/settings/archived': typeof ChatSettingsArchivedRoute
   '/settings/beta': typeof ChatSettingsBetaRoute
+  '/settings/bots': typeof ChatSettingsBotsRoute
   '/settings/browser': typeof ChatSettingsBrowserRoute
   '/settings/chat': typeof ChatSettingsChatRoute
   '/settings/connections': typeof ChatSettingsConnectionsRoute
@@ -404,6 +412,7 @@ export interface FileRoutesById {
   '/_chat/settings/appearance': typeof ChatSettingsAppearanceRoute
   '/_chat/settings/archived': typeof ChatSettingsArchivedRoute
   '/_chat/settings/beta': typeof ChatSettingsBetaRoute
+  '/_chat/settings/bots': typeof ChatSettingsBotsRoute
   '/_chat/settings/browser': typeof ChatSettingsBrowserRoute
   '/_chat/settings/chat': typeof ChatSettingsChatRoute
   '/_chat/settings/connections': typeof ChatSettingsConnectionsRoute
@@ -452,6 +461,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/beta'
+    | '/settings/bots'
     | '/settings/browser'
     | '/settings/chat'
     | '/settings/connections'
@@ -498,6 +508,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/beta'
+    | '/settings/bots'
     | '/settings/browser'
     | '/settings/chat'
     | '/settings/connections'
@@ -545,6 +556,7 @@ export interface FileRouteTypes {
     | '/_chat/settings/appearance'
     | '/_chat/settings/archived'
     | '/_chat/settings/beta'
+    | '/_chat/settings/bots'
     | '/_chat/settings/browser'
     | '/_chat/settings/chat'
     | '/_chat/settings/connections'
@@ -844,6 +856,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatSettingsBrowserRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
+    '/_chat/settings/bots': {
+      id: '/_chat/settings/bots'
+      path: '/bots'
+      fullPath: '/settings/bots'
+      preLoaderRoute: typeof ChatSettingsBotsRouteImport
+      parentRoute: typeof ChatSettingsRoute
+    }
     '/_chat/settings/beta': {
       id: '/_chat/settings/beta'
       path: '/beta'
@@ -909,6 +928,7 @@ interface ChatSettingsRouteChildren {
   ChatSettingsAppearanceRoute: typeof ChatSettingsAppearanceRoute
   ChatSettingsArchivedRoute: typeof ChatSettingsArchivedRoute
   ChatSettingsBetaRoute: typeof ChatSettingsBetaRoute
+  ChatSettingsBotsRoute: typeof ChatSettingsBotsRoute
   ChatSettingsBrowserRoute: typeof ChatSettingsBrowserRoute
   ChatSettingsChatRoute: typeof ChatSettingsChatRoute
   ChatSettingsConnectionsRoute: typeof ChatSettingsConnectionsRoute
@@ -939,6 +959,7 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsAppearanceRoute: ChatSettingsAppearanceRoute,
   ChatSettingsArchivedRoute: ChatSettingsArchivedRoute,
   ChatSettingsBetaRoute: ChatSettingsBetaRoute,
+  ChatSettingsBotsRoute: ChatSettingsBotsRoute,
   ChatSettingsBrowserRoute: ChatSettingsBrowserRoute,
   ChatSettingsChatRoute: ChatSettingsChatRoute,
   ChatSettingsConnectionsRoute: ChatSettingsConnectionsRoute,

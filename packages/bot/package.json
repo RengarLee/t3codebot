@@ -1,0 +1,47 @@
+{
+  "name": "@t3tools/bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contracts": {
+      "types": "./src/contracts.ts",
+      "import": "./src/contracts.ts"
+    },
+    "./server/http": {
+      "types": "./src/server/http.ts",
+      "import": "./src/server/http.ts"
+    },
+    "./server/storage": {
+      "types": "./src/server/storage.ts",
+      "import": "./src/server/storage.ts"
+    },
+    "./web/i18n": {
+      "types": "./src/web/i18n.ts",
+      "import": "./src/web/i18n.ts"
+    },
+    "./web/preferences": {
+      "types": "./src/web/preferences.ts",
+      "import": "./src/web/preferences.ts"
+    },
+    "./web/settingsMeta": {
+      "types": "./src/web/settingsMeta.ts",
+      "import": "./src/web/settingsMeta.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "effect-tsgo tsrs --noEmit",
+    "test": "vp test run --config ../../vite.config.ts --dir ."
+  },
+  "dependencies": {
+    "effect": "catalog:",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

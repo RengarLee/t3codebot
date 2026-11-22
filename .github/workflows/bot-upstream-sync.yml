@@ -1,0 +1,315 @@
+name: Bot Upstream Nightly Sync
+
+on:
+  schedule:
+    # Poll upstream pingdotgg/t3code nightly releases every 30 minutes (offset from :00).
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Optional explicit upstream tag to sync (defaults to latest published nightly)"
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Run merge + full verification gate without promoting to main or publishing a release"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: bot-upstream-sync
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  check_upstream:
+    name: Check Upstream Nightly Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      needs_sync: ${{ steps.check.outputs.needs_sync }}
+      upstream_repo: ${{ steps.check.outputs.upstream_repo }}
+      upstream_tag: ${{ steps.check.outputs.upstream_tag }}
+      upstream_sha: ${{ steps.check.outputs.upstream_sha }}
+      upstream_url: ${{ steps.check.outputs.upstream_url }}
+      sync_branch: ${{ steps.check.outputs.sync_branch }}
+      previous_synced_tag: ${{ steps.check.outputs.previous_synced_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          sparse-checkout: |
+            /packages/bot/upstream-sync.json
+            /scripts/bot-upstream-sync.ts
+          sparse-checkout-cone-mode: false
+
+      - id: check
+        name: Inspect latest upstream nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPLICIT_TAG: ${{ inputs.upstream_tag }}
+        run: |
+          args=(check --github-output)
+          if [[ -n "$EXPLICIT_TAG" ]]; then
+            args+=(--tag "$EXPLICIT_TAG")
+          fi
+          node scripts/bot-upstream-sync.ts "${args[@]}"
+
+  prepare_sync:
+    name: Merge Upstream Nightly & Resolve Generated Files
+    needs: [check_upstream]
+    if: needs.check_upstream.outputs.needs_sync == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      merge_status: ${{ steps.merge.outputs.merge_status }}
+      sync_sha: ${{ steps.merge.outputs.sync_sha }}
+      conflict_files: ${{ steps.merge.outputs.conflict_files }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.BOT_SYNC_TOKEN || github.token }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+
+      - id: merge
+        name: Merge upstream tag into sync branch
+        shell: bash
+        env:
+          UPSTREAM_REPO: ${{ needs.check_upstream.outputs.upstream_repo }}
+          UPSTREAM_TAG: ${{ needs.check_upstream.outputs.upstream_tag }}
+          UPSTREAM_SHA: ${{ needs.check_upstream.outputs.upstream_sha }}
+          SYNC_BRANCH: ${{ needs.check_upstream.outputs.sync_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "t3codebot-sync[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "$SYNC_BRANCH" origin/main
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --no-tags upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
+
+          set +e
+          git merge --no-edit --no-commit "refs/tags/upstream/${UPSTREAM_TAG}"
+          merge_exit=$?
+          set -e
+
+          if [[ "$merge_exit" -ne 0 ]]; then
+            conflicted="$(git diff --name-only --diff-filter=U)"
+            classification="$(node scripts/bot-upstream-sync.ts classify-conflicts --files "$conflicted")"
+            auto_resolvable="$(printf '%s\n' "$classification" | sed -n 's/^auto_resolvable=//p')"
+            generated_files="$(printf '%s\n' "$classification" | sed -n 's/^generated_files=//p')"
+            manual_files="$(printf '%s\n' "$classification" | sed -n 's/^manual_files=//p')"
+
+            if [[ "$auto_resolvable" != "true" ]]; then
+              git merge --abort
+              echo "merge_status=conflict" >> "$GITHUB_OUTPUT"
+              echo "conflict_files=$manual_files" >> "$GITHUB_OUTPUT"
+              echo "::warning::Manual conflicts require resolution: $manual_files"
+              exit 0
+            fi
+
+            echo "Auto-resolving generated conflicts: $generated_files"
+            IFS=',' read -r -a gen_array <<< "$generated_files"
+            for file in "${gen_array[@]}"; do
+              [[ -z "$file" ]] && continue
+              git checkout --theirs -- "$file"
+            done
+
+            if [[ ",$generated_files," == *",pnpm-lock.yaml,"* ]]; then
+              vp install --lockfile-only --ignore-scripts
+              git add pnpm-lock.yaml
+            fi
+            if [[ ",$generated_files," == *",apps/web/src/routeTree.gen.ts,"* ]]; then
+              vp run --filter @t3tools/web build
+              git add apps/web/src/routeTree.gen.ts
+            fi
+          fi
+
+          resolved_upstream_sha="${UPSTREAM_SHA:-$(git rev-parse "refs/tags/upstream/${UPSTREAM_TAG}^{commit}")}"
+          node scripts/bot-upstream-sync.ts record --tag "$UPSTREAM_TAG" --sha "$resolved_upstream_sha"
+          git add packages/bot/upstream-sync.json
+
+          if git diff --cached --quiet; then
+            echo "Nothing changed after merge."
+          else
+            git commit --no-verify -m "chore(sync): merge upstream ${UPSTREAM_TAG}"
+          fi
+
+          sync_sha="$(git rev-parse HEAD)"
+          git push --force-with-lease origin "HEAD:refs/heads/${SYNC_BRANCH}"
+          echo "merge_status=clean" >> "$GITHUB_OUTPUT"
+          echo "sync_sha=$sync_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Open conflict tracking issue on manual merge conflict
+        if: steps.merge.outputs.merge_status == 'conflict'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ needs.check_upstream.outputs.upstream_tag }}
+          UPSTREAM_URL: ${{ needs.check_upstream.outputs.upstream_url }}
+          CONFLICT_FILES: ${{ steps.merge.outputs.conflict_files }}
+        run: |
+          set -euo pipefail
+          title="Upstream sync conflict on ${UPSTREAM_TAG}"
+          existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          body=$(cat <<EOF
+          Automatic sync with upstream nightly **${UPSTREAM_TAG}** (${UPSTREAM_URL}) stopped because non-generated files had merge conflicts:
+
+          - Conflicted files: \`${CONFLICT_FILES}\`
+          - Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          Resolve locally with:
+          \`\`\`bash
+          git fetch https://github.com/pingdotgg/t3code.git tag ${UPSTREAM_TAG}
+          git merge ${UPSTREAM_TAG}
+          node scripts/bot-upstream-sync.ts record --tag ${UPSTREAM_TAG} --sha \$(git rev-parse ${UPSTREAM_TAG}^{commit})
+          node scripts/bot-check-footprint.ts
+          \`\`\`
+          EOF
+          )
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+  verify_sync:
+    name: Strict Full Verification Gate (E2E + Unit + Footprint)
+    needs: [check_upstream, prepare_sync]
+    if: needs.prepare_sync.outputs.merge_status == 'clean'
+    uses: ./.github/workflows/bot-verify.yml
+    with:
+      ref: ${{ needs.prepare_sync.outputs.sync_sha }}
+      run_full_upstream_tests: true
+
+  promote_and_tag:
+    name: Promote Verified Sync to main & Create Nightly Tag
+    needs: [check_upstream, prepare_sync, verify_sync]
+    if: |
+      needs.prepare_sync.outputs.merge_status == 'clean' &&
+      needs.verify_sync.result == 'success' &&
+      inputs.dry_run != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      release_sha: ${{ steps.promote.outputs.release_sha }}
+      version: ${{ steps.promote.outputs.version }}
+      tag: ${{ steps.promote.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.BOT_SYNC_TOKEN || github.token }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=@t3tools/scripts...
+
+      - id: promote
+        name: Promote verified sync branch to main and tag release
+        shell: bash
+        env:
+          SYNC_BRANCH: ${{ needs.check_upstream.outputs.sync_branch }}
+          SYNC_SHA: ${{ needs.prepare_sync.outputs.sync_sha }}
+          UPSTREAM_TAG: ${{ needs.check_upstream.outputs.upstream_tag }}
+          RUN_DATE: ${{ github.run_started_at }}
+        run: |
+          set -euo pipefail
+          git config user.name "t3codebot-sync[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch --tags origin
+          git fetch origin "$SYNC_BRANCH"
+          git checkout main
+          git merge --ff-only "$SYNC_SHA"
+          git push origin main
+
+          nightly_date="$(date -u -d "$RUN_DATE" +%Y%m%d)"
+          meta_out="$(node scripts/bot-release-version.ts \
+            --channel nightly \
+            --source upstream-sync \
+            --date "$nightly_date" \
+            --upstream-tag "$UPSTREAM_TAG" \
+            --sha "$SYNC_SHA")"
+          version="$(printf '%s\n' "$meta_out" | sed -n 's/^version=//p')"
+          tag="$(printf '%s\n' "$meta_out" | sed -n 's/^tag=//p')"
+
+          git tag -a "$tag" "$SYNC_SHA" -m "Release ${tag} (synced from upstream ${UPSTREAM_TAG})"
+          git push origin "refs/tags/${tag}"
+          git push origin --delete "$SYNC_BRANCH" || true
+
+          echo "release_sha=$SYNC_SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  release_nightly:
+    name: Build All Installers & Publish Nightly Release
+    needs: [promote_and_tag]
+    if: needs.promote_and_tag.result == 'success'
+    uses: ./.github/workflows/bot-release.yml
+    secrets: inherit
+    with:
+      ref: ${{ needs.promote_and_tag.outputs.release_sha }}
+      channel: nightly
+      source: upstream-sync
+      upstream_tag: ${{ needs.check_upstream.outputs.upstream_tag }}
+      version: ${{ needs.promote_and_tag.outputs.version }}
+      # Already verified by verify_sync on this exact SHA.
+      skip_verify: true
+
+  report_verify_failure:
+    name: Open Draft PR on Verification Failure
+    needs: [check_upstream, prepare_sync, verify_sync]
+    if: |
+      always() &&
+      needs.prepare_sync.outputs.merge_status == 'clean' &&
+      needs.verify_sync.result == 'failure'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Open or update Draft PR for failed sync verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNC_BRANCH: ${{ needs.check_upstream.outputs.sync_branch }}
+          UPSTREAM_TAG: ${{ needs.check_upstream.outputs.upstream_tag }}
+          UPSTREAM_URL: ${{ needs.check_upstream.outputs.upstream_url }}
+        run: |
+          set -euo pipefail
+          title="chore(sync): upstream ${UPSTREAM_TAG} (verification failed)"
+          body=$(cat <<EOF
+          Merged upstream nightly **${UPSTREAM_TAG}** (${UPSTREAM_URL}) cleanly, but the strict verification gate (footprint/typecheck/tests/E2E) failed.
+
+          - Failing run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - \`main\` was **not** updated and no release tag was cut.
+
+          Fix the failure on \`${SYNC_BRANCH}\`, confirm \`Bot Verification Gate\` is green, then merge.
+          EOF
+          )
+          existing="$(gh pr list --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing" ]]; then
+            gh pr comment "$existing" --body "$body"
+          else
+            gh pr create --draft --base main --head "$SYNC_BRANCH" --title "$title" --body "$body"
+          fi
