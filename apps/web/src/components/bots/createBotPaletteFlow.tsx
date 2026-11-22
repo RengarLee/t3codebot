@@ -59,9 +59,8 @@ export function useCreateBotPaletteFlow(props: {
       props.setOpen(false);
     } catch {
       setError(t("bots.create.failed"));
-    } finally {
-      setSubmitting(false);
     }
+    setSubmitting(false);
   };
 
   return {

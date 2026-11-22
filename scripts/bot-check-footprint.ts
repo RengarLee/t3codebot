@@ -73,6 +73,7 @@ export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | nul
   "apps/web/src/components/settings/SettingsSidebarNav.tsx": 10,
   "apps/web/src/components/settings/settingsSearch.ts": 16,
   "packages/shared/src/cliRelease.ts": 4,
+  "packages/ssh/src/tunnel.test.ts": 4,
   "apps/web/src/routeTree.gen.ts": null,
   "pnpm-lock.yaml": null,
 };
