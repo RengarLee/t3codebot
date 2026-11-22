@@ -8,6 +8,10 @@
       "types": "./src/contracts.ts",
       "import": "./src/contracts.ts"
     },
+    "./server/db": {
+      "types": "./src/server/db.ts",
+      "import": "./src/server/db.ts"
+    },
     "./server/host": {
       "types": "./src/server/host.ts",
       "import": "./src/server/host.ts"

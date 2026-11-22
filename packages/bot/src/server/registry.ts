@@ -3,6 +3,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
 import type { BotListResponse, BotSummary } from "../contracts.ts";
+import type { BotTaskCounts } from "./db.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
 export interface ParsedBotYaml {
@@ -110,6 +111,7 @@ const countBotLocalSkills = Effect.fn("bot.countLocalSkills")(function* (botDir:
  */
 export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function* (
   botsDir: string,
+  taskCountsByBot?: ReadonlyMap<string, BotTaskCounts>,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -127,15 +129,19 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
     if (!(yield* isFile(yamlPath))) continue;
     const yamlText = yield* fs.readFileString(yamlPath).pipe(Effect.orElseSucceed(() => ""));
     const parsed = parseBotYaml(yamlText);
+    const id = parsed.id?.trim() || entry;
     const skillsCount = yield* countBotLocalSkills(botDir);
+    const counts = taskCountsByBot?.get(id);
     bots.push({
-      id: parsed.id?.trim() || entry,
+      id,
       name: parsed.name?.trim() || entry,
       status: parsed.status?.trim() || "draft",
       summary: parsed.summary?.trim() || "",
       version: parsed.version?.trim() || "0.1.0",
       sessionMode: parsed.sessionMode?.trim() || "fresh_per_run",
       skillsCount,
+      activeTasksCount: counts?.active ?? 0,
+      completedTasksCount: counts?.completed ?? 0,
       path: botDir,
     });
   }
@@ -143,9 +149,12 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
   return bots;
 });
 
-export const listStateDirBots = Effect.fn("bot.listStateDirBots")(function* (stateDir: string) {
+export const listStateDirBots = Effect.fn("bot.listStateDirBots")(function* (
+  stateDir: string,
+  taskCountsByBot?: ReadonlyMap<string, BotTaskCounts>,
+) {
   const paths = yield* resolveBotStoragePaths(stateDir);
-  const bots = yield* listBotsInDirectory(paths.directory);
+  const bots = yield* listBotsInDirectory(paths.directory, taskCountsByBot);
   return {
     directory: paths.directory,
     bots,
