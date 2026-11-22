@@ -53,8 +53,7 @@ import * as SpeechService from "./speech/SpeechService.ts";
 import * as CloudSpeech from "./speech/CloudSpeech.ts";
 import { speechHttpApiLayer } from "./speech/http.ts";
 import { speechStreamRouteLayer } from "./speech/stream.ts";
-import { BotServerHost } from "@t3tools/bot/server/host";
-import { botHttpRoutesLayer } from "@t3tools/bot/server/http";
+import { botServerRoutesLayer } from "./botHostAdapter.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as IssueService from "./issue/IssueService.ts";
@@ -895,14 +894,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,
     speechStreamRouteLayer,
-    botHttpRoutesLayer.pipe(
-      Layer.provide(
-        Layer.effect(
-          BotServerHost,
-          Effect.map(ServerConfig.ServerConfig, ({ stateDir }) => ({ stateDir })),
-        ),
-      ),
-    ),
+    botServerRoutesLayer,
   ),
   McpHttpServer.layer.pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),

@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 export const BOT_API_PREFIX = "/api/bots";
 export const BOT_HEALTH_ROUTE = `${BOT_API_PREFIX}/health` as const;
 export const BOT_LIST_ROUTE = `${BOT_API_PREFIX}/list` as const;
+export const BOT_CREATE_ROUTE = `${BOT_API_PREFIX}/create` as const;
 export const BOT_TASKS_ROUTE_PREFIX = `${BOT_API_PREFIX}/tasks` as const;
 
 export const BOT_CLIENT_PREFERENCES_STORAGE_KEY = "t3codebot.clientPreferences.v1";
@@ -45,6 +46,17 @@ export const BotListResponseSchema = Schema.Struct({
   bots: Schema.Array(BotSummarySchema),
 });
 export type BotListResponse = typeof BotListResponseSchema.Type;
+
+export const BotCreateInputSchema = Schema.Struct({
+  name: Schema.String,
+  summary: Schema.optional(Schema.String),
+});
+export type BotCreateInput = typeof BotCreateInputSchema.Type;
+
+export const BotCreateResponseSchema = Schema.Struct({
+  bot: BotSummarySchema,
+});
+export type BotCreateResponse = typeof BotCreateResponseSchema.Type;
 
 export const BotTaskStatusSchema = Schema.Literals([
   "active",

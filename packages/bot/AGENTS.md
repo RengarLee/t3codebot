@@ -12,7 +12,7 @@ All bot work must stay inside `packages/bot/` (and bot-owned files allowed by `s
 
 ## 2. Design client-server APIs as Schema-typed RPC commands; keep HTTP for external webhooks
 
-- Model all bot operations (CRUD, start/stop, status, connection tests, thread bindings) as `effect/Schema`-typed command handlers (`method + input -> output`) in `packages/bot/src/contracts.ts` and `packages/bot/src/server/`.
+- Model all bot operations (CRUD, start/stop, status, connection tests, session summaries) as `effect/Schema`-typed command handlers (`method + input -> output`) in `packages/bot/src/contracts.ts` and `packages/bot/src/server/`.
 - In this fork, expose those commands through the single `/api/bots/*` mount in `packages/bot/src/server/http.ts`; reserve raw HTTP routes for external IM platform webhooks (Feishu, DingTalk, Telegram, Slack, etc.) and `/api/bots/health`.
 - When migrating to T3's plugin system, the same commands plug straight into `host.commands.register` / `host.invoke` with built-in auth, remote tunnel, and multi-environment routing.
 
@@ -31,7 +31,9 @@ All bot work must stay inside `packages/bot/` (and bot-owned files allowed by `s
 
 ## 5. Keep all business state and secrets on the server; `localStorage` is for local UI prefs only
 
-- Store all bot definitions, tokens/app secrets, enable states, and project/thread routing rules on the server under isolated `<stateDir>/bots/` storage (`bots.sqlite` / `bots-config.json`), never in upstream `statev2.sqlite` migrations.
+- A bot is a T3 project, and each of its sessions is a T3 thread opened in that project. Read session identity, status, lifecycle, and parent links from T3's native thread fields; never copy them into bot storage.
+- Never add bot tables, columns, or migrations to upstream `statev2.sqlite`.
+- Everything else a bot owns (definitions, persona and memory files, the Home window, per-session summaries keyed by thread id, tokens/app secrets, enable states) lives in the bot's own private store under `<stateDir>/bots/` (`bots.sqlite` / `bots-config.json` / `<bot-id>/`).
 - Treat tokens/secrets as write-only or masked on read—never echo raw secrets back to clients.
 - Use client `localStorage` (`packages/bot/src/web/preferences.ts`) strictly for per-device view state (e.g., whether the sidebar Bots section is expanded). This keeps desktop, web, remote, and future mobile clients consistent on one server state.
 

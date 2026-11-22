@@ -4,23 +4,27 @@ import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import {
+  BOT_CREATE_ROUTE,
   BOT_HEALTH_ROUTE,
   BOT_LIST_ROUTE,
   BOT_TASKS_ROUTE_PREFIX,
   BotBindHomeInputSchema,
+  BotCreateInputSchema,
   BotCreateTaskInputSchema,
   BotUpdateTaskInputSchema,
   type BotHealthResponse,
 } from "../contracts.ts";
 import { openBotStore, type BotStoreFailure } from "./db.ts";
+import { startBotEventSyncWorker } from "./eventSync.ts";
 import { BotServerHost } from "./host.ts";
-import { listStateDirBots } from "./registry.ts";
+import { createBotInStateDir, listStateDirBots, type BotCreateFailure } from "./registry.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
 const NO_STORE_HEADERS = {
   "cache-control": "no-store",
 } as const;
 
+const decodeCreateBot = Schema.decodeUnknownEffect(BotCreateInputSchema);
 const decodeBindHome = Schema.decodeUnknownEffect(BotBindHomeInputSchema);
 const decodeCreateTask = Schema.decodeUnknownEffect(BotCreateTaskInputSchema);
 const decodeUpdateTask = Schema.decodeUnknownEffect(BotUpdateTaskInputSchema);
@@ -59,6 +63,15 @@ function storeFailureResponse(error: BotStoreFailure) {
   }
 }
 
+function createBotFailureResponse(error: BotCreateFailure) {
+  switch (error._tag) {
+    case "BotCreateValidationError":
+      return jsonError(error.message, 400);
+    case "BotCreateIoError":
+      return jsonError(error.message, 500);
+  }
+}
+
 function parseTaskSubpath(originalUrl: string): ReadonlyArray<string> | null {
   const pathname = new URL(originalUrl, "http://localhost").pathname;
   const prefix = `${BOT_TASKS_ROUTE_PREFIX}/`;
@@ -70,14 +83,18 @@ function parseTaskSubpath(originalUrl: string): ReadonlyArray<string> | null {
 
 /**
  * Single mount point for all bot HTTP routes under `/api/bots/*`.
- * Mounted with minimal glue in `apps/server/src/server.ts` so future bot endpoints
- * never expand the upstream diff.
+ * Mounted via `apps/server/src/botHostAdapter.ts` so upstream `server.ts` stays minimal.
  */
 export const botHttpRoutesLayer = Layer.unwrap(
   Effect.gen(function* () {
-    const { stateDir } = yield* BotServerHost;
+    const host = yield* BotServerHost;
+    const { stateDir } = host;
     const paths = yield* resolveBotStoragePaths(stateDir);
     const store = yield* openBotStore(paths.sqlitePath);
+
+    if (host.orchestration !== undefined) {
+      yield* startBotEventSyncWorker(store, host.orchestration);
+    }
 
     const healthRoute = HttpRouter.add(
       "GET",
@@ -98,6 +115,20 @@ export const botHttpRoutesLayer = Layer.unwrap(
         const result = yield* listStateDirBots(stateDir, taskCounts);
         return jsonOk(result);
       }),
+    );
+
+    const createBotRoute = HttpRouter.add(
+      "POST",
+      BOT_CREATE_ROUTE,
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const raw = yield* request.json.pipe(Effect.option);
+        if (raw._tag === "None") return jsonError("Invalid JSON body.", 400);
+        const decoded = yield* decodeCreateBot(raw.value).pipe(Effect.option);
+        if (decoded._tag === "None") return jsonError("Invalid create bot payload.", 400);
+        const bot = yield* createBotInStateDir(stateDir, decoded.value);
+        return jsonOk({ bot }, 201);
+      }).pipe(Effect.catch((error) => Effect.succeed(createBotFailureResponse(error)))),
     );
 
     const tasksWildcardRoute = HttpRouter.add(
@@ -160,6 +191,6 @@ export const botHttpRoutesLayer = Layer.unwrap(
       }).pipe(Effect.catch((error) => Effect.succeed(storeFailureResponse(error)))),
     );
 
-    return Layer.mergeAll(healthRoute, listBotsRoute, tasksWildcardRoute);
+    return Layer.mergeAll(healthRoute, listBotsRoute, createBotRoute, tasksWildcardRoute);
   }),
 );

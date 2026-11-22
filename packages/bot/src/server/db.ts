@@ -93,6 +93,9 @@ export interface BotStoreShape {
     botId: string,
     taskId: string,
   ) => Effect.Effect<BotTaskRecord | null, BotStoreError>;
+  readonly findTaskByChildThreadId: (
+    childThreadId: string,
+  ) => Effect.Effect<BotTaskRecord | null, BotStoreError>;
   readonly createTask: (
     botId: string,
     input: BotCreateTaskInput,
@@ -161,6 +164,15 @@ const MIGRATIONS: ReadonlyArray<Migration> = [
 
       CREATE INDEX IF NOT EXISTS idx_bot_home_cards_bot_created
         ON bot_home_cards (bot_id, created_at DESC);
+    `,
+  },
+  {
+    version: 2,
+    name: "idx_bot_tasks_child_thread",
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_bot_tasks_child_thread
+        ON bot_tasks (child_thread_id)
+        WHERE child_thread_id IS NOT NULL;
     `,
   },
 ];
@@ -450,6 +462,21 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
       }),
 
     getTask: (botId, taskId) => tryOp("getTask", () => selectTask(botId, taskId)),
+
+    findTaskByChildThreadId: (childThreadId) =>
+      tryOp("findTaskByChildThreadId", () => {
+        const row = db
+          .prepare(
+            `SELECT id, bot_id, child_thread_id, title, goal, status, latest_decision, latest_summary,
+                    created_at, updated_at, completed_at
+               FROM bot_tasks
+              WHERE child_thread_id = ?
+              ORDER BY updated_at DESC, rowid DESC
+              LIMIT 1`,
+          )
+          .get(childThreadId) as unknown as RawTaskRow | undefined;
+        return row ? mapTaskRow(row) : null;
+      }),
 
     createTask: Effect.fn("bot.db.createTask")(function* (botId, input) {
       const normalizedBotId = botId.trim();
