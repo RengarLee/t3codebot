@@ -185,11 +185,17 @@ function resolveDefaultBaseRef(rootDir: string): string {
       readonly lastSyncedTag?: string | null;
       readonly lastSyncedSha?: string | null;
     };
-    if (syncState.lastSyncedTag && gitRefExists(rootDir, syncState.lastSyncedTag)) {
-      return syncState.lastSyncedTag;
-    }
     if (syncState.lastSyncedSha && gitRefExists(rootDir, syncState.lastSyncedSha)) {
       return syncState.lastSyncedSha;
+    }
+    if (
+      syncState.lastSyncedTag &&
+      gitRefExists(rootDir, `refs/tags/upstream/${syncState.lastSyncedTag}`)
+    ) {
+      return `refs/tags/upstream/${syncState.lastSyncedTag}`;
+    }
+    if (syncState.lastSyncedTag && gitRefExists(rootDir, syncState.lastSyncedTag)) {
+      return syncState.lastSyncedTag;
     }
   }
   if (gitRefExists(rootDir, "upstream/main")) {

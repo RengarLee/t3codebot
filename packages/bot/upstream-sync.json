@@ -1,7 +1,7 @@
 {
   "upstreamRepo": "pingdotgg/t3code",
-  "channel": "nightly",
-  "lastSyncedTag": null,
+  "channel": "stable",
+  "lastSyncedTag": "v0.1.11",
   "lastSyncedSha": "0dc32b5c8b",
   "lastSyncedAt": null
 }

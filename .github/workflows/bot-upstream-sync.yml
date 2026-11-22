@@ -1,13 +1,13 @@
-name: Bot Upstream Nightly Sync
+name: Bot Upstream Stable Sync
 
 on:
   schedule:
-    # Poll upstream pingdotgg/t3code nightly releases every 30 minutes (offset from :00).
+    # Poll upstream pingdotgg/t3code stable releases every 30 minutes (offset from :00).
     - cron: "17,47 * * * *"
   workflow_dispatch:
     inputs:
       upstream_tag:
-        description: "Optional explicit upstream tag to sync (defaults to latest published nightly)"
+        description: "Optional explicit upstream tag to sync (defaults to latest published stable release)"
         required: false
         default: ""
         type: string
@@ -29,11 +29,12 @@ permissions:
 
 jobs:
   check_upstream:
-    name: Check Upstream Nightly Release
+    name: Check Upstream Stable Release
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       needs_sync: ${{ steps.check.outputs.needs_sync }}
+      sync_channel: ${{ steps.check.outputs.sync_channel }}
       upstream_repo: ${{ steps.check.outputs.upstream_repo }}
       upstream_tag: ${{ steps.check.outputs.upstream_tag }}
       upstream_sha: ${{ steps.check.outputs.upstream_sha }}
@@ -50,7 +51,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - id: check
-        name: Inspect latest upstream nightly
+        name: Inspect latest upstream stable release
         env:
           GH_TOKEN: ${{ github.token }}
           EXPLICIT_TAG: ${{ inputs.upstream_tag }}
@@ -62,7 +63,7 @@ jobs:
           node scripts/bot-upstream-sync.ts "${args[@]}"
 
   prepare_sync:
-    name: Merge Upstream Nightly & Resolve Generated Files
+    name: Merge Upstream Stable & Resolve Generated Files
     needs: [check_upstream]
     if: needs.check_upstream.outputs.needs_sync == 'true'
     runs-on: ubuntu-24.04
@@ -141,8 +142,13 @@ jobs:
             fi
           fi
 
+          existing_sha="$(node -p "JSON.parse(require('node:fs').readFileSync('packages/bot/upstream-sync.json','utf8')).lastSyncedSha || ''")"
           resolved_upstream_sha="${UPSTREAM_SHA:-$(git rev-parse "refs/tags/upstream/${UPSTREAM_TAG}^{commit}")}"
-          node scripts/bot-upstream-sync.ts record --tag "$UPSTREAM_TAG" --sha "$resolved_upstream_sha"
+          record_sha="$resolved_upstream_sha"
+          if [[ -n "$existing_sha" ]] && git cat-file -e "${existing_sha}^{commit}" 2>/dev/null && git merge-base --is-ancestor "$resolved_upstream_sha" "$existing_sha"; then
+            record_sha="$existing_sha"
+          fi
+          node scripts/bot-upstream-sync.ts record --tag "$UPSTREAM_TAG" --sha "$record_sha"
           git add packages/bot/upstream-sync.json
 
           if git diff --cached --quiet; then
@@ -168,7 +174,7 @@ jobs:
           title="Upstream sync conflict on ${UPSTREAM_TAG}"
           existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
           body=$(cat <<EOF
-          Automatic sync with upstream nightly **${UPSTREAM_TAG}** (${UPSTREAM_URL}) stopped because non-generated files had merge conflicts:
+          Automatic sync with upstream stable **${UPSTREAM_TAG}** (${UPSTREAM_URL}) stopped because non-generated files had merge conflicts:
 
           - Conflicted files: \`${CONFLICT_FILES}\`
           - Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
@@ -198,7 +204,7 @@ jobs:
       run_full_upstream_tests: true
 
   promote_and_tag:
-    name: Promote Verified Sync to main & Create Nightly Tag
+    name: Promote Verified Sync to main & Create Stable Tag
     needs: [check_upstream, prepare_sync, verify_sync]
     if: |
       needs.prepare_sync.outputs.merge_status == 'clean' &&
@@ -232,6 +238,7 @@ jobs:
         shell: bash
         env:
           SYNC_BRANCH: ${{ needs.check_upstream.outputs.sync_branch }}
+          SYNC_CHANNEL: ${{ needs.check_upstream.outputs.sync_channel }}
           SYNC_SHA: ${{ needs.prepare_sync.outputs.sync_sha }}
           UPSTREAM_TAG: ${{ needs.check_upstream.outputs.upstream_tag }}
           RUN_DATE: ${{ github.run_started_at }}
@@ -246,11 +253,11 @@ jobs:
           git merge --ff-only "$SYNC_SHA"
           git push origin main
 
-          nightly_date="$(date -u -d "$RUN_DATE" +%Y%m%d)"
+          release_date="$(date -u -d "$RUN_DATE" +%Y%m%d)"
           meta_out="$(node scripts/bot-release-version.ts \
-            --channel nightly \
+            --channel "${SYNC_CHANNEL:-stable}" \
             --source upstream-sync \
-            --date "$nightly_date" \
+            --date "$release_date" \
             --upstream-tag "$UPSTREAM_TAG" \
             --sha "$SYNC_SHA")"
           version="$(printf '%s\n' "$meta_out" | sed -n 's/^version=//p')"
@@ -264,15 +271,15 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-  release_nightly:
-    name: Build All Installers & Publish Nightly Release
-    needs: [promote_and_tag]
+  release_stable:
+    name: Build All Installers & Publish Stable Release
+    needs: [check_upstream, promote_and_tag]
     if: needs.promote_and_tag.result == 'success'
     uses: ./.github/workflows/bot-release.yml
     secrets: inherit
     with:
       ref: ${{ needs.promote_and_tag.outputs.release_sha }}
-      channel: nightly
+      channel: ${{ needs.check_upstream.outputs.sync_channel || 'stable' }}
       source: upstream-sync
       upstream_tag: ${{ needs.check_upstream.outputs.upstream_tag }}
       version: ${{ needs.promote_and_tag.outputs.version }}
@@ -299,7 +306,7 @@ jobs:
           set -euo pipefail
           title="chore(sync): upstream ${UPSTREAM_TAG} (verification failed)"
           body=$(cat <<EOF
-          Merged upstream nightly **${UPSTREAM_TAG}** (${UPSTREAM_URL}) cleanly, but the strict verification gate (footprint/typecheck/tests/E2E) failed.
+          Merged upstream stable **${UPSTREAM_TAG}** (${UPSTREAM_URL}) cleanly, but the strict verification gate (footprint/typecheck/tests/E2E) failed.
 
           - Failing run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           - \`main\` was **not** updated and no release tag was cut.

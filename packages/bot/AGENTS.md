@@ -1,6 +1,6 @@
 # Bot Module (`@t3tools/bot`) Agent Guidelines
 
-This repository is a fork of T3 Code (`pingdotgg/t3code`) that adds Bot capabilities while staying low-conflict with upstream nightly syncs and ready to migrate into T3 Code's upcoming native plugin system (tracked around `pingdotgg/t3code#40222`) without a rewrite.
+This repository is a fork of T3 Code (`pingdotgg/t3code`) that adds Bot capabilities while staying low-conflict with upstream stable syncs and ready to migrate into T3 Code's upcoming native plugin system (tracked around `pingdotgg/t3code#40222`) without a rewrite.
 
 All bot work must stay inside `packages/bot/` (and bot-owned files allowed by `scripts/bot-check-footprint.ts`) and follow these five plugin-portability rules:
 

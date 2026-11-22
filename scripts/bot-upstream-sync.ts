@@ -3,7 +3,10 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+export const STABLE_TAG_PATTERN = /^v\d+\.\d+\.\d+$/;
 export const NIGHTLY_TAG_PATTERN = /^v\d+\.\d+\.\d+-nightly\.\d{8}\.\d+$/;
+
+export type UpstreamSyncChannel = "stable" | "nightly";
 
 export const AUTO_REGENERATABLE_CONFLICT_FILES = new Set<string>([
   "pnpm-lock.yaml",
@@ -12,7 +15,7 @@ export const AUTO_REGENERATABLE_CONFLICT_FILES = new Set<string>([
 
 export interface UpstreamSyncState {
   readonly upstreamRepo: string;
-  readonly channel: "nightly" | "stable";
+  readonly channel: UpstreamSyncChannel;
   readonly lastSyncedTag: string | null;
   readonly lastSyncedSha: string | null;
   readonly lastSyncedAt: string | null;
@@ -31,6 +34,27 @@ export interface ConflictResolutionPlan {
   readonly autoResolvable: boolean;
   readonly generatedFiles: ReadonlyArray<string>;
   readonly manualFiles: ReadonlyArray<string>;
+}
+
+export function selectLatestUpstreamStable(
+  releases: ReadonlyArray<GitHubReleaseSummary>,
+): GitHubReleaseSummary | undefined {
+  let newest: GitHubReleaseSummary | undefined;
+  let newestTimestamp = Number.NEGATIVE_INFINITY;
+
+  for (const release of releases) {
+    if (release.draft || release.prerelease) continue;
+    if (!STABLE_TAG_PATTERN.test(release.tag_name)) continue;
+    if (!release.published_at) continue;
+    const publishedAtMs = Date.parse(release.published_at);
+    if (!Number.isFinite(publishedAtMs)) continue;
+    if (publishedAtMs > newestTimestamp) {
+      newest = release;
+      newestTimestamp = publishedAtMs;
+    }
+  }
+
+  return newest;
 }
 
 export function selectLatestUpstreamNightly(
@@ -52,6 +76,15 @@ export function selectLatestUpstreamNightly(
   }
 
   return newest;
+}
+
+export function selectLatestUpstreamRelease(
+  releases: ReadonlyArray<GitHubReleaseSummary>,
+  channel: UpstreamSyncChannel,
+): GitHubReleaseSummary | undefined {
+  return channel === "stable"
+    ? selectLatestUpstreamStable(releases)
+    : selectLatestUpstreamNightly(releases);
 }
 
 export function planConflictResolution(
@@ -104,10 +137,7 @@ function writeOutputs(entries: ReadonlyArray<readonly [string, string]>, githubO
   }
 }
 
-async function fetchUpstreamReleases(
-  repo: string,
-  token?: string,
-): Promise<GitHubReleaseSummary[]> {
+function githubApiHeaders(token?: string): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "User-Agent": "t3codebot-upstream-sync",
@@ -115,12 +145,40 @@ async function fetchUpstreamReleases(
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
+  return headers;
+}
+
+async function fetchUpstreamReleases(
+  repo: string,
+  token?: string,
+): Promise<GitHubReleaseSummary[]> {
   const url = `https://api.github.com/repos/${repo}/releases?per_page=100`;
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, { headers: githubApiHeaders(token) });
   if (!response.ok) {
     throw new Error(`Failed to fetch releases for ${repo}: HTTP ${response.status}`);
   }
   return (await response.json()) as GitHubReleaseSummary[];
+}
+
+async function fetchLatestUpstreamStableRelease(
+  repo: string,
+  token?: string,
+): Promise<GitHubReleaseSummary | undefined> {
+  // `/releases/latest` directly resolves the newest non-draft, non-prerelease release,
+  // avoiding pagination misses when many nightly prereleases sit on page 1.
+  const latestUrl = `https://api.github.com/repos/${repo}/releases/latest`;
+  const latestResponse = await fetch(latestUrl, { headers: githubApiHeaders(token) });
+  if (latestResponse.ok) {
+    const release = (await latestResponse.json()) as GitHubReleaseSummary;
+    if (!release.draft && !release.prerelease && STABLE_TAG_PATTERN.test(release.tag_name)) {
+      return release;
+    }
+  } else if (latestResponse.status !== 404) {
+    throw new Error(`Failed to fetch latest release for ${repo}: HTTP ${latestResponse.status}`);
+  }
+
+  const releases = await fetchUpstreamReleases(repo, token);
+  return selectLatestUpstreamStable(releases);
 }
 
 async function resolveTagCommitSha(
@@ -128,15 +186,8 @@ async function resolveTagCommitSha(
   tag: string,
   token?: string,
 ): Promise<string | undefined> {
-  const headers: Record<string, string> = {
-    Accept: "application/vnd.github+json",
-    "User-Agent": "t3codebot-upstream-sync",
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
   const url = `https://api.github.com/repos/${repo}/commits/${encodeURIComponent(tag)}`;
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, { headers: githubApiHeaders(token) });
   if (!response.ok) {
     return undefined;
   }
@@ -171,6 +222,11 @@ async function main() {
   if (subcommand === "check") {
     const state = readSyncState(stateFilePath);
     const repo = getFlag(argv, "--upstream-repo") ?? state.upstreamRepo;
+    const channelRaw = (getFlag(argv, "--channel") ?? state.channel ?? "stable").trim();
+    if (channelRaw !== "stable" && channelRaw !== "nightly") {
+      throw new Error(`Unsupported channel '${channelRaw}'. Expected 'stable' or 'nightly'.`);
+    }
+    const channel: UpstreamSyncChannel = channelRaw;
     const explicitTag = getFlag(argv, "--tag")?.trim();
     const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
 
@@ -181,6 +237,8 @@ async function main() {
         published_at: new Date().toISOString(),
         html_url: `https://github.com/${repo}/releases/tag/${explicitTag}`,
       };
+    } else if (channel === "stable") {
+      latest = await fetchLatestUpstreamStableRelease(repo, token);
     } else {
       const releases = await fetchUpstreamReleases(repo, token);
       latest = selectLatestUpstreamNightly(releases);
@@ -194,6 +252,7 @@ async function main() {
     writeOutputs(
       [
         ["needs_sync", shouldSync ? "true" : "false"],
+        ["sync_channel", channel],
         ["upstream_repo", repo],
         ["upstream_tag", latest?.tag_name ?? ""],
         ["upstream_sha", upstreamSha],
@@ -210,12 +269,19 @@ async function main() {
   if (subcommand === "record") {
     const tag = getFlag(argv, "--tag");
     const sha = getFlag(argv, "--sha");
+    const channelFlag = getFlag(argv, "--channel")?.trim();
     if (!tag || !sha) {
-      throw new Error("Usage: bot-upstream-sync.ts record --tag <tag> --sha <sha>");
+      throw new Error(
+        "Usage: bot-upstream-sync.ts record --tag <tag> --sha <sha> [--channel <stable|nightly>]",
+      );
+    }
+    if (channelFlag !== undefined && channelFlag !== "stable" && channelFlag !== "nightly") {
+      throw new Error(`Unsupported channel '${channelFlag}'. Expected 'stable' or 'nightly'.`);
     }
     const current = readSyncState(stateFilePath);
     const updated: UpstreamSyncState = {
       ...current,
+      channel: channelFlag ?? current.channel,
       lastSyncedTag: tag,
       lastSyncedSha: sha,
       lastSyncedAt: new Date().toISOString(),
