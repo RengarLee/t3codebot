@@ -40,6 +40,8 @@ export const BotSummarySchema = Schema.Struct({
   path: Schema.String,
   /** The T3 project this bot's sessions live in; null until it is first created. */
   projectId: Schema.NullOr(Schema.String),
+  /** The bot's Home thread in that project; null until Home is first opened. */
+  homeThreadId: Schema.NullOr(Schema.String),
 });
 export type BotSummary = typeof BotSummarySchema.Type;
 

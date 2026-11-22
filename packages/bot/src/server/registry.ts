@@ -8,7 +8,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import type { BotCreateInput, BotListResponse, BotSummary } from "../contracts.ts";
-import type { BotTaskCounts } from "./db.ts";
+import type { BotHome, BotTaskCounts } from "./db.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
 export class BotCreateValidationError extends Schema.TaggedError<
@@ -159,7 +159,7 @@ const countBotLocalSkills = Effect.fn("bot.countLocalSkills")(function* (botDir:
 export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function* (
   botsDir: string,
   taskCountsByBot?: ReadonlyMap<string, BotTaskCounts>,
-  projectIdsByBot?: ReadonlyMap<string, string>,
+  homesByBot?: ReadonlyMap<string, BotHome>,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -191,7 +191,8 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
       activeTasksCount: counts?.active ?? 0,
       completedTasksCount: counts?.completed ?? 0,
       path: botDir,
-      projectId: projectIdsByBot?.get(id) ?? null,
+      projectId: homesByBot?.get(id)?.projectId ?? null,
+      homeThreadId: homesByBot?.get(id)?.homeThreadId ?? null,
     });
   }
 
@@ -201,10 +202,10 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
 export const listStateDirBots = Effect.fn("bot.listStateDirBots")(function* (
   stateDir: string,
   taskCountsByBot?: ReadonlyMap<string, BotTaskCounts>,
-  projectIdsByBot?: ReadonlyMap<string, string>,
+  homesByBot?: ReadonlyMap<string, BotHome>,
 ) {
   const paths = yield* resolveBotStoragePaths(stateDir);
-  const bots = yield* listBotsInDirectory(paths.directory, taskCountsByBot, projectIdsByBot);
+  const bots = yield* listBotsInDirectory(paths.directory, taskCountsByBot, homesByBot);
   return {
     directory: paths.directory,
     bots,

@@ -36,6 +36,10 @@
       "types": "./src/web/botList.ts",
       "import": "./src/web/botList.ts"
     },
+    "./web/BotOverviewPanel": {
+      "types": "./src/web/BotOverviewPanel.tsx",
+      "import": "./src/web/BotOverviewPanel.tsx"
+    },
     "./web/BotsSettingsView": {
       "types": "./src/web/BotsSettingsView.tsx",
       "import": "./src/web/BotsSettingsView.tsx"

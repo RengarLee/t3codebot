@@ -115,6 +115,26 @@ export const BOT_MESSAGES = {
     en: "Local Bots",
     zh: "本地机器人",
   },
+  "bots.overview.active": {
+    en: "Active",
+    zh: "活动中",
+  },
+  "bots.overview.running": {
+    en: "Running",
+    zh: "运行中",
+  },
+  "bots.overview.done": {
+    en: "Done",
+    zh: "已完成",
+  },
+  "bots.overview.noSessions": {
+    en: "No sessions yet",
+    zh: "暂无会话",
+  },
+  "bots.overview.settled": {
+    en: "Settled",
+    zh: "已收尾",
+  },
 } as const;
 
 export type BotMessageKey = keyof typeof BOT_MESSAGES;

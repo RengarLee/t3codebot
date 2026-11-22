@@ -15,7 +15,7 @@ import {
   BotUpdateTaskInputSchema,
   type BotHealthResponse,
 } from "../contracts.ts";
-import { openBotStore, type BotStoreFailure } from "./db.ts";
+import { openBotStore, type BotHome, type BotStoreFailure } from "./db.ts";
 import { startBotEventSyncWorker } from "./eventSync.ts";
 import { BotNotFoundError, ensureBotHome, ensureBotProject, type BotHomeDeps } from "./home.ts";
 import { BotServerHost, type BotHostError } from "./host.ts";
@@ -132,10 +132,10 @@ export const botHttpRoutesLayer = Layer.unwrap(
         const taskCounts = yield* store
           .getTaskCountsByBot()
           .pipe(Effect.orElseSucceed(() => new Map()));
-        const projectIds = yield* store
-          .getProjectIdsByBot()
-          .pipe(Effect.orElseSucceed(() => new Map<string, string>()));
-        const result = yield* listStateDirBots(stateDir, taskCounts, projectIds);
+        const homes = yield* store
+          .getHomesByBot()
+          .pipe(Effect.orElseSucceed(() => new Map<string, BotHome>()));
+        const result = yield* listStateDirBots(stateDir, taskCounts, homes);
         return jsonOk(result);
       }),
     );

@@ -25,6 +25,12 @@ import type {
 import { BotServerHost } from "./host.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
+/** Where a bot's sessions live: its T3 project and its Home thread there. */
+export interface BotHome {
+  readonly projectId: string;
+  readonly homeThreadId: string | null;
+}
+
 export interface BotTaskCounts {
   readonly active: number;
   readonly completed: number;
@@ -74,7 +80,7 @@ export interface BotStoreShape {
     BotStoreError
   >;
   readonly getHome: (botId: string) => Effect.Effect<BotHomeRecord | null, BotStoreError>;
-  readonly getProjectIdsByBot: () => Effect.Effect<ReadonlyMap<string, string>, BotStoreError>;
+  readonly getHomesByBot: () => Effect.Effect<ReadonlyMap<string, BotHome>, BotStoreError>;
   readonly upsertHome: (
     botId: string,
     input: BotBindHomeInput,
@@ -406,12 +412,23 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
 
     getHome: (botId) => tryOp("getHome", () => selectHome(botId)),
 
-    getProjectIdsByBot: () =>
-      tryOp("getProjectIdsByBot", () => {
+    getHomesByBot: () =>
+      tryOp("getHomesByBot", () => {
         const rows = db
-          .prepare("SELECT bot_id, project_id FROM bot_homes WHERE project_id IS NOT NULL")
-          .all() as unknown as ReadonlyArray<{ bot_id: string; project_id: string }>;
-        return new Map(rows.map((row) => [row.bot_id, row.project_id]));
+          .prepare(
+            "SELECT bot_id, project_id, home_thread_id FROM bot_homes WHERE project_id IS NOT NULL",
+          )
+          .all() as unknown as ReadonlyArray<{
+          bot_id: string;
+          project_id: string;
+          home_thread_id: string | null;
+        }>;
+        return new Map(
+          rows.map((row) => [
+            row.bot_id,
+            { projectId: row.project_id, homeThreadId: row.home_thread_id },
+          ]),
+        );
       }),
 
     upsertHome: Effect.fn("bot.db.upsertHome")(function* (botId, input) {

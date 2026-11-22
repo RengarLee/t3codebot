@@ -31,6 +31,9 @@ describe("bot sqlite store (bots.sqlite)", () => {
         expect(bound.botId).toBe(botId);
         expect(bound.homeThreadId).toBe("thread:home:1");
         expect(bound.projectId).toBe("proj-1");
+        expect(yield* store.getHomesByBot()).toEqual(
+          new Map([[botId, { projectId: "proj-1", homeThreadId: "thread:home:1" }]]),
+        );
 
         // 2. Create two independent tasks; each atomically records a task_dispatched card.
         const first = yield* store.createTask(botId, {

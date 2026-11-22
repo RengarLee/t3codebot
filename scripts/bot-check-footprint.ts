@@ -34,6 +34,7 @@ const BOT_OWNED_PATTERNS: ReadonlyArray<RegExp> = [
 
 const BOT_OWNED_EXACT = new Set<string>([
   "apps/server/src/botHostAdapter.ts",
+  "apps/web/src/components/bots/BotThreadDetails.tsx",
   "apps/web/src/components/bots/createBotPaletteFlow.tsx",
   "apps/web/src/components/settings/BotsSettingsPanel.tsx",
   "apps/web/src/components/sidebar/SidebarBotsBar.tsx",
@@ -68,6 +69,7 @@ export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | nul
   "apps/server/package.json": 6,
   "apps/server/src/server.ts": 10,
   "apps/web/package.json": 6,
+  "apps/web/src/components/chat/ThreadDetailsPanel.tsx": 6,
   "apps/web/src/components/CommandPalette.tsx": 18,
   "apps/web/src/components/Sidebar.tsx": 10,
   "apps/web/src/components/settings/SettingsSidebarNav.tsx": 10,
