@@ -35,17 +35,102 @@ const STABLE_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
 const NIGHTLY_VERSION_PATTERN = /^(\d+\.\d+\.\d+)-nightly\.(\d{8})\.(\d+)$/;
 const DATE_PATTERN = /^\d{8}$/;
 
-export function computeNightlyBaseVersion(desktopPackageVersion: string): string {
-  const core = desktopPackageVersion
+/** Patch stride per upstream stable release (`[P * 100, P * 100 + 99]`) for monotonic 3-part SemVer updates. */
+export const STABLE_REVISION_STRIDE = 100;
+
+interface SemverCore {
+  readonly major: number;
+  readonly minor: number;
+  readonly patch: number;
+}
+
+function parseSemverCore(raw: string): SemverCore | undefined {
+  const core = raw
     .trim()
     .replace(/^v/, "")
     .replace(/[-+].*$/, "");
   const match = STABLE_VERSION_PATTERN.exec(core);
-  if (!match) {
+  if (!match) return undefined;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  };
+}
+
+function compareSemverCore(left: SemverCore, right: SemverCore): number {
+  if (left.major !== right.major) return left.major - right.major;
+  if (left.minor !== right.minor) return left.minor - right.minor;
+  return left.patch - right.patch;
+}
+
+function formatSemverCore(core: SemverCore): string {
+  return `${core.major}.${core.minor}.${core.patch}`;
+}
+
+export function resolveUpstreamStableBaseVersion(
+  desktopPackageVersion: string,
+  upstreamTag?: string | null,
+): string {
+  const desktopCore = parseSemverCore(desktopPackageVersion);
+  if (!desktopCore) {
     throw new Error(`Invalid apps/desktop/package.json version '${desktopPackageVersion}'.`);
   }
-  const [, major, minor, patch] = match;
-  return `${major}.${minor}.${Number(patch) + 1}`;
+
+  const cleanTag = upstreamTag?.trim().replace(/^v/, "") ?? "";
+  if (STABLE_VERSION_PATTERN.test(cleanTag)) {
+    const tagCore = parseSemverCore(cleanTag);
+    if (tagCore && compareSemverCore(tagCore, desktopCore) >= 0) {
+      return formatSemverCore(tagCore);
+    }
+  }
+
+  return formatSemverCore(desktopCore);
+}
+
+export function computeNextStableVersion(
+  upstreamBaseVersion: string,
+  existingTags: ReadonlyArray<string>,
+): string {
+  const base = parseSemverCore(upstreamBaseVersion);
+  if (!base) {
+    throw new Error(`Invalid upstream stable base version '${upstreamBaseVersion}'.`);
+  }
+
+  const slotStart = base.patch * STABLE_REVISION_STRIDE;
+  const slotEnd = slotStart + STABLE_REVISION_STRIDE - 1;
+  let maxPatchInSlot: number | undefined;
+
+  for (const rawTag of existingTags) {
+    const tag = rawTag.trim();
+    const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+    if (!match) continue;
+    const major = Number(match[1]);
+    const minor = Number(match[2]);
+    const patch = Number(match[3]);
+    if (major !== base.major || minor !== base.minor) continue;
+    if (patch < slotStart || patch > slotEnd) continue;
+    if (maxPatchInSlot === undefined || patch > maxPatchInSlot) {
+      maxPatchInSlot = patch;
+    }
+  }
+
+  const nextPatch = maxPatchInSlot === undefined ? slotStart : maxPatchInSlot + 1;
+  if (nextPatch > slotEnd) {
+    throw new Error(
+      `Stable revision slot exhausted for upstream ${formatSemverCore(base)} (max ${STABLE_REVISION_STRIDE} releases per upstream version). Pass an explicit --version or wait for the next upstream release.`,
+    );
+  }
+
+  return `${base.major}.${base.minor}.${nextPatch}`;
+}
+
+export function computeNightlyBaseVersion(desktopPackageVersion: string): string {
+  const core = parseSemverCore(desktopPackageVersion);
+  if (!core) {
+    throw new Error(`Invalid apps/desktop/package.json version '${desktopPackageVersion}'.`);
+  }
+  return `${core.major}.${core.minor}.${core.patch + 1}`;
 }
 
 export function computeNextDailyNightlySequence(
@@ -85,7 +170,10 @@ export function formatUpstreamLabel(
 export function resolveBotReleaseVersion(
   input: ResolveBotReleaseVersionInput,
 ): BotReleaseVersionMetadata {
-  const baseVersion = computeNightlyBaseVersion(input.desktopPackageVersion);
+  const baseVersion =
+    input.channel === "stable"
+      ? resolveUpstreamStableBaseVersion(input.desktopPackageVersion, input.upstreamTag)
+      : computeNightlyBaseVersion(input.desktopPackageVersion);
   const botVersion = input.botPackageVersion.trim() || "0.0.0";
   const upstreamLabel = formatUpstreamLabel(input.upstreamTag, input.upstreamSha);
   const explicit = input.explicitVersion?.trim().replace(/^v/, "") ?? "";
@@ -104,15 +192,16 @@ export function resolveBotReleaseVersion(
       version = `${baseVersion}-nightly.${input.date}.${nextSeq}`;
     }
   } else {
-    if (!explicit) {
-      throw new Error("Stable release requires an explicit X.Y.Z version or git tag.");
+    if (explicit) {
+      if (!STABLE_VERSION_PATTERN.test(explicit)) {
+        throw new Error(
+          `Invalid stable version '${explicit}'. Must match <X.Y.Z> without custom prerelease suffixes.`,
+        );
+      }
+      version = explicit;
+    } else {
+      version = computeNextStableVersion(baseVersion, input.existingTags);
     }
-    if (!STABLE_VERSION_PATTERN.test(explicit)) {
-      throw new Error(
-        `Invalid stable version '${explicit}'. Must match <X.Y.Z> without custom prerelease suffixes.`,
-      );
-    }
-    version = explicit;
   }
 
   const tag = `v${version}`;
@@ -132,7 +221,17 @@ export function resolveBotReleaseVersion(
       releaseName = `T3 Code Bot Nightly ${version} (${detail})`;
     }
   } else {
-    releaseName = `T3 Code Bot v${version} (bot ${botVersion})`;
+    if (input.source === "upstream-sync") {
+      const detail = upstreamLabel
+        ? `sync: ${upstreamLabel} · bot ${botVersion}`
+        : `sync · bot ${botVersion}`;
+      releaseName = `T3 Code Bot v${version} (${detail})`;
+    } else {
+      const detail = upstreamLabel
+        ? `bot ${botVersion} · base ${upstreamLabel}`
+        : `bot ${botVersion}${shortSha ? ` · ${shortSha}` : ""}`;
+      releaseName = `T3 Code Bot v${version} (${detail})`;
+    }
   }
 
   return {
@@ -197,7 +296,7 @@ function defaultUtcDate(): string {
 function main() {
   const rootDir = NodePath.resolve(import.meta.dirname, "..");
   const argv = process.argv.slice(2);
-  const channelRaw = (getFlag(argv, "--channel") ?? "nightly").trim();
+  const channelRaw = (getFlag(argv, "--channel") ?? "stable").trim();
   if (channelRaw !== "nightly" && channelRaw !== "stable") {
     throw new Error(`Unsupported channel '${channelRaw}'. Expected 'nightly' or 'stable'.`);
   }

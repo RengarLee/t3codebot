@@ -9,8 +9,8 @@ export interface BotStoragePaths {
 
 /**
  * Resolves isolated persistence paths for the bot module under T3 Code's state directory.
- * Keeping bot storage in its own SQLite/config files avoids ever colliding with upstream
- * `statev2.sqlite` schema migrations.
+ * Keeping bot storage in `<stateDir>/bots/` avoids colliding with upstream `statev2.sqlite`
+ * migrations and keeps user bots local (never committed to git).
  */
 export const resolveBotStoragePaths = Effect.fn("bot.resolveStoragePaths")(function* (
   stateDir: string,

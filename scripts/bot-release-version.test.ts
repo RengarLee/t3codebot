@@ -2,11 +2,90 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   computeNextDailyNightlySequence,
+  computeNextStableVersion,
   computeNightlyBaseVersion,
   resolveBotReleaseVersion,
+  resolveUpstreamStableBaseVersion,
 } from "./bot-release-version.ts";
 
 describe("bot-release-version", () => {
+  it("resolves upstream stable base version preferring newer upstream stable tag over pre-bump package.json", () => {
+    expect(resolveUpstreamStableBaseVersion("0.1.11", "v0.1.12")).toBe("0.1.12");
+    expect(resolveUpstreamStableBaseVersion("0.1.11", "v0.1.11")).toBe("0.1.11");
+    expect(resolveUpstreamStableBaseVersion("0.1.11", "v0.1.10")).toBe("0.1.11");
+    expect(resolveUpstreamStableBaseVersion("0.1.11", "v0.1.12-nightly.20261122.4900")).toBe(
+      "0.1.11",
+    );
+    expect(resolveUpstreamStableBaseVersion("0.1.11", undefined)).toBe("0.1.11");
+  });
+
+  it("allocates monotonic X.Y.<upstreamPatch*100+seq> stable versions across upstream syncs and bot updates", () => {
+    const tags = [
+      "v0.1.11",
+      "v0.1.1100",
+      "v0.1.1101",
+      // Upstream tags fetched under a prefix must be ignored.
+      "upstream/v0.1.1200",
+    ];
+
+    expect(computeNextStableVersion("0.1.11", tags)).toBe("0.1.1102");
+    expect(computeNextStableVersion("0.1.12", tags)).toBe("0.1.1200");
+    expect(computeNextStableVersion("0.2.0", tags)).toBe("0.2.0");
+    expect(computeNextStableVersion("0.2.0", [...tags, "v0.2.0"])).toBe("0.2.1");
+    expect(computeNextStableVersion("0.2.1", [...tags, "v0.2.0", "v0.2.1"])).toBe("0.2.100");
+
+    expect(() => computeNextStableVersion("0.1.11", ["v0.1.1199"])).toThrow(
+      /Stable revision slot exhausted/,
+    );
+  });
+
+  it("resolves stable upstream-sync and bot-only releases on the latest channel", () => {
+    // Upstream tags v0.1.12 before finalize bumps apps/desktop/package.json from 0.1.11 -> 0.1.12.
+    const syncRelease = resolveBotReleaseVersion({
+      desktopPackageVersion: "0.1.11",
+      botPackageVersion: "0.1.0",
+      channel: "stable",
+      source: "upstream-sync",
+      date: "20261124",
+      existingTags: ["v0.1.1100", "v0.1.1101"],
+      upstreamTag: "v0.1.12",
+      sha: "abcdef1234567890",
+    });
+
+    expect(syncRelease).toEqual({
+      baseVersion: "0.1.12",
+      version: "0.1.1200",
+      tag: "v0.1.1200",
+      botVersion: "0.1.0",
+      upstreamLabel: "v0.1.12",
+      releaseName: "T3 Code Bot v0.1.1200 (sync: v0.1.12 · bot 0.1.0)",
+      isPrerelease: false,
+      makeLatest: true,
+    });
+
+    const botRelease = resolveBotReleaseVersion({
+      desktopPackageVersion: "0.1.11",
+      botPackageVersion: "0.2.0",
+      channel: "stable",
+      source: "bot",
+      date: "20261125",
+      existingTags: ["v0.1.1100", "v0.1.1101", syncRelease.tag],
+      upstreamTag: "v0.1.12",
+      sha: "1234567890abcdef",
+    });
+
+    expect(botRelease).toEqual({
+      baseVersion: "0.1.12",
+      version: "0.1.1201",
+      tag: "v0.1.1201",
+      botVersion: "0.2.0",
+      upstreamLabel: "v0.1.12",
+      releaseName: "T3 Code Bot v0.1.1201 (bot 0.2.0 · base v0.1.12)",
+      isPrerelease: false,
+      makeLatest: true,
+    });
+  });
+
   it("computes the next nightly base version from apps/desktop/package.json", () => {
     expect(computeNightlyBaseVersion("0.1.11")).toBe("0.1.12");
     expect(computeNightlyBaseVersion("0.1.11-nightly.20261120.1")).toBe("0.1.12");

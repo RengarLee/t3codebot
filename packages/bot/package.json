@@ -8,6 +8,10 @@
       "types": "./src/contracts.ts",
       "import": "./src/contracts.ts"
     },
+    "./server/host": {
+      "types": "./src/server/host.ts",
+      "import": "./src/server/host.ts"
+    },
     "./server/http": {
       "types": "./src/server/http.ts",
       "import": "./src/server/http.ts"
@@ -15,6 +19,14 @@
     "./server/storage": {
       "types": "./src/server/storage.ts",
       "import": "./src/server/storage.ts"
+    },
+    "./web/apiClient": {
+      "types": "./src/web/apiClient.ts",
+      "import": "./src/web/apiClient.ts"
+    },
+    "./web/SidebarBotsSection": {
+      "types": "./src/web/SidebarBotsSection.tsx",
+      "import": "./src/web/SidebarBotsSection.tsx"
     },
     "./web/i18n": {
       "types": "./src/web/i18n.ts",

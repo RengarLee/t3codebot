@@ -100,6 +100,7 @@ jobs:
         run: |
           vp test run \
             scripts/bot-check-footprint.test.ts \
+            scripts/bot-release-version.test.ts \
             scripts/bot-upstream-sync.test.ts \
             packages/shared/src/cliRelease.test.ts \
             apps/web/src/components/settings/settingsSearch.test.ts

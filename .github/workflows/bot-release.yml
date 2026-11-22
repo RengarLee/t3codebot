@@ -11,13 +11,13 @@ on:
       channel:
         description: "Release channel"
         required: false
-        default: nightly
+        default: stable
         type: choice
         options:
-          - nightly
           - stable
+          - nightly
       version:
-        description: "Explicit release version override (e.g. 0.1.12-nightly.20261122.1 or 0.1.12)"
+        description: "Explicit release version override (e.g. 0.1.1200 or 0.1.12-nightly.20261122.1)"
         required: false
         default: ""
         type: string
@@ -33,9 +33,9 @@ on:
         required: true
         type: string
       channel:
-        description: "Release channel (nightly or stable)"
+        description: "Release channel (stable or nightly)"
         required: false
-        default: nightly
+        default: stable
         type: string
       source:
         description: "Release trigger source (upstream-sync or bot)"
@@ -86,7 +86,7 @@ on:
         required: false
 
 concurrency:
-  group: bot-release-${{ inputs.channel || 'nightly' }}
+  group: bot-release-${{ inputs.channel || 'stable' }}
   cancel-in-progress: false
 
 permissions:
@@ -152,7 +152,7 @@ jobs:
               channel="stable"
             fi
           else
-            channel="${INPUT_CHANNEL:-nightly}"
+            channel="${INPUT_CHANNEL:-stable}"
             raw_version="${INPUT_VERSION#v}"
           fi
 
@@ -498,7 +498,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
-        run: gh release edit "$RELEASE_TAG" --draft=false
+          MAKE_LATEST: ${{ needs.preflight.outputs.make_latest }}
+        run: |
+          if [[ "$MAKE_LATEST" == "true" ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest=false
+          fi
 
       # Maintain the `update-feed` pointer release so nightly desktop installs
       # automatically discover and install the newest t3codebot nightly build.
