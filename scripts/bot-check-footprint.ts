@@ -27,6 +27,7 @@ const BOT_OWNED_PREFIXES = ["packages/bot/", "docs/bot/", ".agents/skills/verify
 
 const BOT_OWNED_PATTERNS: ReadonlyArray<RegExp> = [
   /^\.github\/workflows\/bot-[^/]+\.yml$/,
+  /^\.(?:agents|claude)\/rules\/bot-[^/]+\.md$/,
   /^scripts\/bot-[^/]+\.ts$/,
   /^scripts\/scenarios\/bot-[^/]+\.e2e\.ts$/,
 ];

@@ -21,7 +21,7 @@ Three dedicated workflows (none touch upstream `.github/workflows/release.yml` o
    - Polls `pingdotgg/t3code` every 30 minutes for new published `nightly` releases (`v*-nightly.YYYYMMDD.N`).
    - Merges the new upstream tag into `sync/upstream-<tag>` and automatically regenerates `pnpm-lock.yaml` / `apps/web/src/routeTree.gen.ts` if only generated files conflict.
    - Runs `.github/workflows/bot-verify.yml` (footprint guard, `i18n:check`, `knip:check`, `vp check`, workspace `typecheck`, `@t3tools/bot` tests, sharded web/server/desktop tests, production web boot check, and full-stack Playwright E2E scenarios including `scripts/scenarios/bot-integration.e2e.ts` and `scripts/scenarios/replay-turn-streams.e2e.ts`).
-   - Only when **every check passes** does it fast-forward `main`, cut a native nightly tag (`v<baseVersion>-nightly.<YYYYMMDD>.<runNumber>`), and invoke `.github/workflows/bot-release.yml`.
+   - Only when **every check passes** does it fast-forward `main`, cut a native nightly tag via `scripts/bot-release-version.ts` (`v<baseVersion>-nightly.<YYYYMMDD>.<dailySeq>`), and invoke `.github/workflows/bot-release.yml`.
    - If manual merge conflicts occur, it opens a tracking issue; if verification/E2E fails, it opens a Draft PR and leaves `main` untouched.
 
 2. `.github/workflows/bot-release.yml`
@@ -29,7 +29,20 @@ Three dedicated workflows (none touch upstream `.github/workflows/release.yml` o
    - Desktop auto-updates automatically target this fork repository via `GITHUB_REPOSITORY` (`T3CODE_DESKTOP_UPDATE_REPOSITORY`), merge multi-arch manifests (`nightly-mac.yml`, `nightly-linux.yml`, `nightly-linux-arm64.yml`, `nightly.yml`), and maintain the `update-feed` release (`nightly.json`).
    - CLI/SSH server downloads point to `RengarLee/t3codebot` via `packages/shared/src/cliRelease.ts`.
 
-## 3. Optional Repository Configuration
+## 3. Versioning & Release Workflow
+
+- **Outer release tag / installer version**: Always follows T3's strict nightly SemVer format `v<upstreamPatch+1>-nightly.<YYYYMMDD>.<N>` (never add custom suffixes like `-bot.1`, which would break `cliReleaseChannelOf` and desktop auto-updates, and never manually bump `apps/desktop/package.json`).
+- **Unified daily monotonic sequence (`<N>`)**: Both `bot-upstream-sync.yml` and `bot-release.yml` resolve `<N>` through `scripts/bot-release-version.ts` by taking `max(existing repo tags for the same baseVersion and UTC date) + 1`, preventing version regressions or tag collisions when upstream syncs and bot releases happen on the same day.
+- **Inner bot version (`packages/bot/package.json`)**: Maintained independently (`0.1.0`, `0.1.1`, `0.2.0`, ...). Only bump it when Bot functionality changes; pure upstream syncs keep it unchanged.
+- **Release title convention**:
+  - Upstream sync: `T3 Code Bot Nightly <version> (sync: <upstreamTag> · bot <botVersion>)`
+  - Bot update: `T3 Code Bot Nightly <version> (bot <botVersion> · base <upstreamTag>)`
+- **How to publish a Bot update**:
+  1. Bump `version` in `packages/bot/package.json` and merge your changes to `main`.
+  2. Open GitHub Actions → **Bot Release** → **Run workflow** on `main` (`channel: nightly`, leave `version` empty).
+  3. The workflow runs `bot-verify.yml`, auto-assigns the next daily tag, builds all desktop + CLI artifacts, publishes the GitHub Release, and updates `update-feed/nightly.json`.
+
+## 4. Optional Repository Configuration
 
 Everything works out of the box with standard `GITHUB_TOKEN` (unsigned builds). Optional secrets/variables unlock full production signing and branch-protection pushes:
 

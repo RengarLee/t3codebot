@@ -9,6 +9,9 @@ import {
 describe("bot-check-footprint", () => {
   it("recognizes bot-owned paths", () => {
     expect(isBotOwnedPath("packages/bot/src/server/http.ts")).toBe(true);
+    expect(isBotOwnedPath("packages/bot/AGENTS.md")).toBe(true);
+    expect(isBotOwnedPath(".agents/rules/bot-architecture.md")).toBe(true);
+    expect(isBotOwnedPath(".claude/rules/bot-architecture.md")).toBe(true);
     expect(isBotOwnedPath(".github/workflows/bot-upstream-sync.yml")).toBe(true);
     expect(isBotOwnedPath("scripts/bot-upstream-sync.ts")).toBe(true);
     expect(isBotOwnedPath("scripts/scenarios/bot-integration.e2e.ts")).toBe(true);

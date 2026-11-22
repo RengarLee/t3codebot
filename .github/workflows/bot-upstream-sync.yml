@@ -235,21 +235,23 @@ jobs:
           SYNC_SHA: ${{ needs.prepare_sync.outputs.sync_sha }}
           UPSTREAM_TAG: ${{ needs.check_upstream.outputs.upstream_tag }}
           RUN_DATE: ${{ github.run_started_at }}
-          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
           git config user.name "t3codebot-sync[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          git fetch --tags origin
           git fetch origin "$SYNC_BRANCH"
           git checkout main
           git merge --ff-only "$SYNC_SHA"
           git push origin main
 
           nightly_date="$(date -u -d "$RUN_DATE" +%Y%m%d)"
-          meta_out="$(node scripts/resolve-nightly-release.ts \
+          meta_out="$(node scripts/bot-release-version.ts \
+            --channel nightly \
+            --source upstream-sync \
             --date "$nightly_date" \
-            --run-number "$RUN_NUMBER" \
+            --upstream-tag "$UPSTREAM_TAG" \
             --sha "$SYNC_SHA")"
           version="$(printf '%s\n' "$meta_out" | sed -n 's/^version=//p')"
           tag="$(printf '%s\n' "$meta_out" | sed -n 's/^tag=//p')"
@@ -271,6 +273,8 @@ jobs:
     with:
       ref: ${{ needs.promote_and_tag.outputs.release_sha }}
       channel: nightly
+      source: upstream-sync
+      upstream_tag: ${{ needs.check_upstream.outputs.upstream_tag }}
       version: ${{ needs.promote_and_tag.outputs.version }}
       # Already verified by verify_sync on this exact SHA.
       skip_verify: true
