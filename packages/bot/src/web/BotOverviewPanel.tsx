@@ -12,10 +12,10 @@ export interface BotOverviewDropdownRow {
   readonly label: string;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
-  /** Shown on the Active row before Running when > 0. */
+  /** Shown on the Active row after Running when > 0. */
   readonly doneCount: number;
   readonly doneLabel: string;
-  /** Shown on the Active row after Done when > 0. */
+  /** Shown on the Active row before Done when > 0. */
   readonly runningCount: number;
   readonly runningLabel: string;
   /** Shown on the Settled row; omitted on Active. */

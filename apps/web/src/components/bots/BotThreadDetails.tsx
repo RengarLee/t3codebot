@@ -163,16 +163,6 @@ function BotSessionDropdownRow({ row }: { readonly row: BotOverviewDropdownRow }
       >
         <span className="min-w-0 flex-1 truncate">{row.label}</span>
         <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
-          {row.doneCount > 0 ? (
-            <span
-              aria-label={`${row.doneLabel} ${row.doneCount}`}
-              data-testid="bot-overview-done-count"
-              className="inline-flex items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.5 text-2xs font-medium leading-none text-success-foreground"
-            >
-              <CircleCheckIcon aria-hidden className="size-3 shrink-0" />
-              {row.doneCount}
-            </span>
-          ) : null}
           {row.runningCount > 0 ? (
             <span
               aria-label={`${row.runningLabel} ${row.runningCount}`}
@@ -181,6 +171,16 @@ function BotSessionDropdownRow({ row }: { readonly row: BotOverviewDropdownRow }
             >
               <CircleDashedIcon aria-hidden className="size-3 shrink-0" />
               {row.runningCount}
+            </span>
+          ) : null}
+          {row.doneCount > 0 ? (
+            <span
+              aria-label={`${row.doneLabel} ${row.doneCount}`}
+              data-testid="bot-overview-done-count"
+              className="inline-flex items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.5 text-2xs font-medium leading-none text-success-foreground"
+            >
+              <CircleCheckIcon aria-hidden className="size-3 shrink-0" />
+              {row.doneCount}
             </span>
           ) : null}
           {row.totalCount !== null ? (
