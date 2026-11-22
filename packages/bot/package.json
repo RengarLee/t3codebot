@@ -32,6 +32,10 @@
       "types": "./src/web/apiClient.ts",
       "import": "./src/web/apiClient.ts"
     },
+    "./web/botList": {
+      "types": "./src/web/botList.ts",
+      "import": "./src/web/botList.ts"
+    },
     "./web/BotsSettingsView": {
       "types": "./src/web/BotsSettingsView.tsx",
       "import": "./src/web/BotsSettingsView.tsx"

@@ -24,7 +24,7 @@ export type BotClientPreferences = typeof BotClientPreferencesSchema.Type;
 
 export const DEFAULT_BOT_CLIENT_PREFERENCES: BotClientPreferences = {
   botsBarEnabled: true,
-  sidebarBotsPanelOpen: false,
+  sidebarBotsPanelOpen: true,
 };
 
 export const BotSummarySchema = Schema.Struct({
@@ -38,6 +38,8 @@ export const BotSummarySchema = Schema.Struct({
   activeTasksCount: Schema.Int,
   completedTasksCount: Schema.Int,
   path: Schema.String,
+  /** The T3 project this bot's sessions live in; null until it is first created. */
+  projectId: Schema.NullOr(Schema.String),
 });
 export type BotSummary = typeof BotSummarySchema.Type;
 
@@ -120,6 +122,12 @@ export const BotBindHomeInputSchema = Schema.Struct({
   projectId: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type BotBindHomeInput = typeof BotBindHomeInputSchema.Type;
+
+/** `POST /api/bots/tasks/:botId/home`: binds (or launches) the bot's Home thread in its own project. */
+export const BotEnsureHomeResponseSchema = Schema.Struct({
+  home: BotHomeRecordSchema,
+});
+export type BotEnsureHomeResponse = typeof BotEnsureHomeResponseSchema.Type;
 
 export const BotCreateTaskInputSchema = Schema.Struct({
   title: Schema.String,

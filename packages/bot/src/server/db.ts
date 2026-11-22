@@ -74,6 +74,7 @@ export interface BotStoreShape {
     BotStoreError
   >;
   readonly getHome: (botId: string) => Effect.Effect<BotHomeRecord | null, BotStoreError>;
+  readonly getProjectIdsByBot: () => Effect.Effect<ReadonlyMap<string, string>, BotStoreError>;
   readonly upsertHome: (
     botId: string,
     input: BotBindHomeInput,
@@ -404,6 +405,14 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
       }),
 
     getHome: (botId) => tryOp("getHome", () => selectHome(botId)),
+
+    getProjectIdsByBot: () =>
+      tryOp("getProjectIdsByBot", () => {
+        const rows = db
+          .prepare("SELECT bot_id, project_id FROM bot_homes WHERE project_id IS NOT NULL")
+          .all() as unknown as ReadonlyArray<{ bot_id: string; project_id: string }>;
+        return new Map(rows.map((row) => [row.bot_id, row.project_id]));
+      }),
 
     upsertHome: Effect.fn("bot.db.upsertHome")(function* (botId, input) {
       const normalizedBotId = botId.trim();

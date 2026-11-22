@@ -99,6 +99,18 @@ export const BOT_MESSAGES = {
     en: "Could not create the bot.",
     zh: "创建机器人失败。",
   },
+  "bots.home.openFailed": {
+    en: "Couldn't open Home",
+    zh: "无法打开 Home",
+    de: "Home konnte nicht geöffnet werden",
+    es: "No se pudo abrir Home",
+    fr: "Impossible d'ouvrir Home",
+    ja: "Home を開けませんでした",
+    ko: "Home을 열 수 없습니다",
+    "pt-BR": "Não foi possível abrir o Home",
+    ru: "Не удалось открыть Home",
+    sv: "Det gick inte att öppna Home",
+  },
   "bots.list.title": {
     en: "Local Bots",
     zh: "本地机器人",

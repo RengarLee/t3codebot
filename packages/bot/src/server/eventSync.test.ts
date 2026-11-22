@@ -19,6 +19,8 @@ function makeMockOrchestration(
   latestTextByThread: Readonly<Record<string, string>> = {},
 ): BotHostOrchestrationShape {
   return {
+    ensureProject: () => Effect.succeed({ projectId: "project:mock" }),
+    getThread: () => Effect.succeed(null),
     launchThread: () =>
       Effect.succeed({ threadId: "thread:mock", projectId: "project:mock", resumed: false }),
     sendMessage: () =>

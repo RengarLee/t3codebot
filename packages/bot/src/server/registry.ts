@@ -159,6 +159,7 @@ const countBotLocalSkills = Effect.fn("bot.countLocalSkills")(function* (botDir:
 export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function* (
   botsDir: string,
   taskCountsByBot?: ReadonlyMap<string, BotTaskCounts>,
+  projectIdsByBot?: ReadonlyMap<string, string>,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -190,6 +191,7 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
       activeTasksCount: counts?.active ?? 0,
       completedTasksCount: counts?.completed ?? 0,
       path: botDir,
+      projectId: projectIdsByBot?.get(id) ?? null,
     });
   }
 
@@ -199,9 +201,10 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
 export const listStateDirBots = Effect.fn("bot.listStateDirBots")(function* (
   stateDir: string,
   taskCountsByBot?: ReadonlyMap<string, BotTaskCounts>,
+  projectIdsByBot?: ReadonlyMap<string, string>,
 ) {
   const paths = yield* resolveBotStoragePaths(stateDir);
-  const bots = yield* listBotsInDirectory(paths.directory, taskCountsByBot);
+  const bots = yield* listBotsInDirectory(paths.directory, taskCountsByBot, projectIdsByBot);
   return {
     directory: paths.directory,
     bots,

@@ -19,8 +19,18 @@ export type BotHostRuntimeMode = "approval-required" | "auto-accept-edits" | "au
 
 export type BotHostInteractionMode = "default" | "plan";
 
+export interface BotHostEnsureProjectInput {
+  readonly workspaceRoot: string;
+  readonly title: string;
+}
+
+export interface BotHostThreadInfo {
+  readonly threadId: string;
+  readonly projectId: string;
+}
+
 export interface BotHostLaunchThreadInput {
-  readonly projectId?: string | undefined;
+  readonly projectId: string;
   readonly title: string;
   readonly initialText?: string | undefined;
   readonly outputSchema?: Readonly<Record<string, Schema.Json>> | undefined;
@@ -85,6 +95,12 @@ export type BotHostThreadLifecycleEvent =
  * T3's native plugin host only swaps `apps/server/src/botHostAdapter.ts`.
  */
 export interface BotHostOrchestrationShape {
+  /** Returns the live project rooted at `workspaceRoot`, creating it (and the folder) when missing. */
+  readonly ensureProject: (
+    input: BotHostEnsureProjectInput,
+  ) => Effect.Effect<{ readonly projectId: string }, BotHostError>;
+  /** Null when the thread is unknown or deleted. */
+  readonly getThread: (threadId: string) => Effect.Effect<BotHostThreadInfo | null, BotHostError>;
   readonly launchThread: (
     input: BotHostLaunchThreadInput,
   ) => Effect.Effect<BotHostLaunchThreadResult, BotHostError>;

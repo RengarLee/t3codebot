@@ -4,10 +4,13 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } fr
 import {
   BOT_CREATE_ROUTE,
   BOT_LIST_ROUTE,
+  BOT_TASKS_ROUTE_PREFIX,
   BotCreateResponseSchema,
+  BotEnsureHomeResponseSchema,
   BotListResponseSchema,
   type BotCreateInput,
   type BotCreateResponse,
+  type BotEnsureHomeResponse,
   type BotListResponse,
 } from "../contracts.ts";
 
@@ -77,4 +80,19 @@ export async function createBot(
   );
   notifyBotsServerStateChanged();
   return decoded;
+}
+
+/** Binds the bot's Home thread, launching one in the bot's project when none is live. */
+export function ensureBotHome(
+  botId: string,
+  options?: BotApiClientOptions,
+): Promise<BotEnsureHomeResponse> {
+  const route = `${BOT_TASKS_ROUTE_PREFIX}/${encodeURIComponent(botId)}/home`;
+  return Effect.runPromise(
+    HttpClient.execute(HttpClientRequest.post(buildBotUrl(route, options?.httpBaseUrl))).pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(BotEnsureHomeResponseSchema)),
+      Effect.provide(FetchHttpClient.layer),
+    ),
+  );
 }
