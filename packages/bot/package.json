@@ -32,13 +32,21 @@
       "types": "./src/web/apiClient.ts",
       "import": "./src/web/apiClient.ts"
     },
+    "./web/botList": {
+      "types": "./src/web/botList.ts",
+      "import": "./src/web/botList.ts"
+    },
+    "./web/BotOverviewPanel": {
+      "types": "./src/web/BotOverviewPanel.tsx",
+      "import": "./src/web/BotOverviewPanel.tsx"
+    },
     "./web/BotsSettingsView": {
       "types": "./src/web/BotsSettingsView.tsx",
       "import": "./src/web/BotsSettingsView.tsx"
     },
-    "./web/SidebarBotsSection": {
-      "types": "./src/web/SidebarBotsSection.tsx",
-      "import": "./src/web/SidebarBotsSection.tsx"
+    "./web/SidebarMainBotEntry": {
+      "types": "./src/web/SidebarMainBotEntry.tsx",
+      "import": "./src/web/SidebarMainBotEntry.tsx"
     },
     "./web/i18n": {
       "types": "./src/web/i18n.ts",

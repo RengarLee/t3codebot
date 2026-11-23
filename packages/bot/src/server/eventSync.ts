@@ -1,111 +1,63 @@
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
-import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
-import { BotTaskStatusSchema, type BotTaskStatus } from "../contracts.ts";
+import { BotSessionReceiptSchema, type BotSessionReceipt } from "../contracts.ts";
 import type { BotStoreShape } from "./db.ts";
 import type { BotHostOrchestrationShape, BotHostThreadLifecycleEvent } from "./host.ts";
 
-const StructuredTaskOutcomeSchema = Schema.Struct({
-  decision: Schema.optional(Schema.String),
-  summary: Schema.optional(Schema.String),
-  status: Schema.optional(BotTaskStatusSchema),
-});
+const decodeReceipt = Schema.decodeUnknownOption(BotSessionReceiptSchema);
 
-const decodeStructuredOutcome = Schema.decodeUnknownOption(StructuredTaskOutcomeSchema);
-
-function truncateSummary(text: string, maxChars = 160): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxChars) return normalized;
-  return `${normalized.slice(0, maxChars - 1)}…`;
+export interface BotSessionSyncDeps {
+  readonly store: BotStoreShape;
+  readonly orchestration: BotHostOrchestrationShape;
 }
 
-export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(function* (
-  store: BotStoreShape,
-  orchestration: BotHostOrchestrationShape,
-  event: BotHostThreadLifecycleEvent,
-) {
-  const task = yield* store
-    .findTaskByChildThreadId(event.threadId)
-    .pipe(Effect.orElseSucceed(() => null));
-  if (!task) return false;
-
-  if (event.type === "runtime_request_pending") {
-    if (task.status === "completed" || task.status === "archived") return false;
-    yield* store
-      .updateTask(task.botId, task.id, {
-        status: "waiting_user",
-        latestSummary: `子线程等待确认（${event.kind}）`,
-        emitHomeCard: task.status !== "waiting_user",
-      })
-      .pipe(Effect.ignore);
-    return true;
-  }
-
-  if (event.type === "run_output") {
-    const parsed = decodeStructuredOutcome(event.output);
-    if (parsed._tag === "None") return false;
-    const outcome = parsed.value;
-    const decision = outcome.decision?.trim();
-    const summary = outcome.summary?.trim();
-    const nextStatus: BotTaskStatus | undefined = outcome.status;
-    if (!decision && !summary && nextStatus === undefined) return false;
-
-    yield* store
-      .updateTask(task.botId, task.id, {
-        ...(nextStatus !== undefined ? { status: nextStatus } : {}),
-        ...(decision ? { latestDecision: decision } : {}),
-        ...(summary ? { latestSummary: truncateSummary(summary) } : {}),
-        emitHomeCard: true,
-      })
-      .pipe(Effect.ignore);
-    return true;
-  }
-
-  // event.type === "run_status"
-  if (event.status === "failed") {
-    if (task.status === "completed" || task.status === "archived") return false;
-    yield* store
-      .updateTask(task.botId, task.id, {
-        status: "waiting_user",
-        latestSummary: "子线程执行失败，等待检查或重试",
-        emitHomeCard: true,
-      })
-      .pipe(Effect.ignore);
-    return true;
-  }
-
-  if (event.status === "completed" && task.status === "active") {
-    const latest = yield* orchestration
-      .readLatestResult(event.threadId)
-      .pipe(Effect.orElseSucceed(() => null));
-    const latestText = latest?.latestAssistantText?.trim();
-    if (latestText) {
-      yield* store
-        .updateTask(task.botId, task.id, {
-          latestSummary: truncateSummary(latestText),
-          emitHomeCard: false,
-        })
-        .pipe(Effect.ignore);
-      return true;
-    }
-  }
-
-  return false;
-});
+function formatReceiptForHome(title: string, receipt: BotSessionReceipt): string {
+  const artifacts =
+    receipt.artifacts.length > 0 ? `\nArtifacts: ${receipt.artifacts.join(", ")}` : "";
+  return `Session receipt from "${title}": ${receipt.status}.\n${receipt.outcome}${artifacts}`;
+}
 
 /**
- * Starts a cleanly disposable scoped background fiber that listens to T3 orchestration
- * thread lifecycle events and keeps `bots.sqlite` task states automatically synchronized.
+ * A session in a bot's project handed back output. Only a valid receipt is recorded and
+ * passed to the bot's Home, which is woken to report it.
  */
-export function startBotEventSyncWorker(
-  store: BotStoreShape,
-  orchestration: BotHostOrchestrationShape,
-): Effect.Effect<Fiber.Fiber<void, never>, never, Scope.Scope> {
-  return orchestration.subscribeThreadEvents().pipe(
-    Stream.runForEach((event) => applyThreadLifecycleEvent(store, orchestration, event)),
+export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(function* (
+  deps: BotSessionSyncDeps,
+  event: BotHostThreadLifecycleEvent,
+) {
+  if (event.type !== "run_output") return false;
+  const receipt = decodeReceipt(event.output);
+  if (receipt._tag === "None") return false;
+  const thread = yield* deps.orchestration.getThread(event.threadId);
+  if (thread === null) return false;
+  const homes = yield* deps.store.getHomesByBot();
+  const owner = [...homes].find(([, home]) => home.projectId === thread.projectId);
+  if (owner === undefined) return false;
+  const [botId, home] = owner;
+  if (home.homeThreadId === null || event.threadId === home.homeThreadId) return false;
+
+  yield* deps.store.upsertSessionReceipt(botId, event.threadId, receipt.value);
+  yield* deps.orchestration.sendMessage({
+    threadId: home.homeThreadId,
+    text: formatReceiptForHome(thread.title, receipt.value),
+    // One delivery per session run, even if the event is replayed.
+    clientRequestId: `bot:receipt:${event.runId}`,
+  });
+  return true;
+});
+
+/** A scoped fiber, so disabling or reloading the bot module stops it. */
+export function startBotEventSyncWorker(deps: BotSessionSyncDeps) {
+  return deps.orchestration.subscribeThreadEvents().pipe(
+    Stream.runForEach((event) =>
+      applyThreadLifecycleEvent(deps, event).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("bot session receipt failed", { threadId: event.threadId, cause }),
+        ),
+      ),
+    ),
     Effect.ignore,
     Effect.forkScoped,
   );

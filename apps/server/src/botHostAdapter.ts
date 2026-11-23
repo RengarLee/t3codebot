@@ -23,6 +23,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as ServerConfig from "./config.ts";
 import * as OrchestratorV2 from "./orchestration-v2/Orchestrator.ts";
 import * as ProjectStoreV2 from "./orchestration-v2/ProjectStore.ts";
+import * as ProjectService from "./project/ProjectService.ts";
 import * as ProjectionStoreV2 from "./orchestration-v2/ProjectionStore.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
@@ -50,7 +51,9 @@ function mapRunStatus(
   }
 }
 
-function mapDomainEvent(event: OrchestrationV2DomainEvent): BotHostThreadLifecycleEvent | null {
+export function mapDomainEvent(
+  event: OrchestrationV2DomainEvent,
+): BotHostThreadLifecycleEvent | null {
   if (event.type === "run.updated") {
     const status = mapRunStatus(event.payload.status);
     if (status === null) return null;
@@ -66,7 +69,7 @@ function mapDomainEvent(event: OrchestrationV2DomainEvent): BotHostThreadLifecyc
       type: "run_output",
       threadId: event.threadId,
       runId: event.payload.runId,
-      output: event.payload.output,
+      output: event.payload.output.value,
     };
   }
   if (event.type === "runtime-request.updated" && event.payload.status === "pending") {
@@ -88,6 +91,7 @@ const layerBotServerHostLive = Layer.effect(
     const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
     const projections = yield* ProjectionStoreV2.ProjectionStoreV2;
     const projectStore = yield* ProjectStoreV2.ProjectStoreV2;
+    const projectService = yield* ProjectService.ProjectService;
     const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
     const random = yield* SecureRandom.SecureRandom;
 
@@ -110,23 +114,41 @@ const layerBotServerHostLive = Layer.effect(
     });
 
     const orchestration: BotHostOrchestrationShape = {
-      launchThread: Effect.fn("botHostAdapter.launchThread")(function* (input) {
-        const project = input.projectId
-          ? Option.getOrUndefined(
-              yield* projectStore
-                .get(ProjectId.make(input.projectId))
-                .pipe(Effect.mapError((cause) => toHostError("launchThread.getProject", cause))),
-            )
-          : (yield* projectStore
-              .list()
-              .pipe(
-                Effect.mapError((cause) => toHostError("launchThread.listProjects", cause)),
-              ))[0];
+      ensureProject: Effect.fn("botHostAdapter.ensureProject")(function* (input) {
+        const { project } = yield* projectService
+          .bootstrap({
+            commandId: CommandId.make(`bot:project:${yield* random.uuidV4()}`),
+            projectId: ProjectId.make(yield* random.uuidV4()),
+            title: input.title,
+            workspaceRoot: input.workspaceRoot,
+            createWorkspaceRootIfMissing: true,
+          })
+          .pipe(Effect.mapError((cause) => toHostError("ensureProject", cause)));
+        return { projectId: project.id };
+      }),
 
+      getThread: Effect.fn("botHostAdapter.getThread")(function* (threadId) {
+        const records = yield* projections
+          .getThreadRecords(ThreadId.make(threadId), [])
+          .pipe(Effect.option);
+        if (records._tag === "None" || records.value.thread.deletedAt !== null) return null;
+        return {
+          threadId,
+          projectId: records.value.thread.projectId,
+          title: records.value.thread.title,
+        };
+      }),
+
+      launchThread: Effect.fn("botHostAdapter.launchThread")(function* (input) {
+        const project = Option.getOrUndefined(
+          yield* projectStore
+            .get(ProjectId.make(input.projectId))
+            .pipe(Effect.mapError((cause) => toHostError("launchThread.getProject", cause))),
+        );
         if (!project) {
           return yield* new BotHostError({
             operation: "launchThread",
-            detail: "No active project is available to host a bot thread.",
+            detail: `Project not found: ${input.projectId}`,
           });
         }
 
@@ -224,7 +246,7 @@ const layerBotServerHostLive = Layer.effect(
           threadId,
           latestRunStatus: latestRun?.status ?? null,
           latestAssistantText: latestAssistant?.text ?? null,
-          latestOutput: latestRun?.output ?? null,
+          latestOutput: latestRun?.output?.value ?? null,
         };
       }),
 

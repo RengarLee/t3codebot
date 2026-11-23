@@ -7,8 +7,13 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import type { BotCreateInput, BotListResponse, BotSummary } from "../contracts.ts";
-import type { BotTaskCounts } from "./db.ts";
+import {
+  BOT_SESSION_RECEIPT_JSON_SCHEMA,
+  MAIN_BOT_ID,
+  type BotListResponse,
+  type BotSummary,
+} from "../contracts.ts";
+import type { BotHome } from "./db.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
 export class BotCreateValidationError extends Schema.TaggedError<
@@ -34,6 +39,13 @@ export class BotCreateIoError extends Schema.TaggedError<
 }
 
 export type BotCreateFailure = BotCreateValidationError | BotCreateIoError;
+
+export interface BotCreateInput {
+  readonly name: string;
+  readonly summary?: string | undefined;
+  /** Fixed directory and id; a random UUID otherwise. */
+  readonly id?: string | undefined;
+}
 
 export interface ParsedBotYaml {
   readonly id?: string;
@@ -158,7 +170,7 @@ const countBotLocalSkills = Effect.fn("bot.countLocalSkills")(function* (botDir:
  */
 export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function* (
   botsDir: string,
-  taskCountsByBot?: ReadonlyMap<string, BotTaskCounts>,
+  homesByBot?: ReadonlyMap<string, BotHome>,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -178,18 +190,18 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
     const parsed = parseBotYaml(yamlText);
     const id = parsed.id?.trim() || entry;
     const skillsCount = yield* countBotLocalSkills(botDir);
-    const counts = taskCountsByBot?.get(id);
     bots.push({
       id,
+      role: id === MAIN_BOT_ID ? "main" : "sub",
       name: parsed.name?.trim() || entry,
       status: parsed.status?.trim() || "draft",
       summary: parsed.summary?.trim() || "",
       version: parsed.version?.trim() || "0.1.0",
       sessionMode: parsed.sessionMode?.trim() || "fresh_per_run",
       skillsCount,
-      activeTasksCount: counts?.active ?? 0,
-      completedTasksCount: counts?.completed ?? 0,
       path: botDir,
+      projectId: homesByBot?.get(id)?.projectId ?? null,
+      homeThreadId: homesByBot?.get(id)?.homeThreadId ?? null,
     });
   }
 
@@ -198,10 +210,10 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
 
 export const listStateDirBots = Effect.fn("bot.listStateDirBots")(function* (
   stateDir: string,
-  taskCountsByBot?: ReadonlyMap<string, BotTaskCounts>,
+  homesByBot?: ReadonlyMap<string, BotHome>,
 ) {
   const paths = yield* resolveBotStoragePaths(stateDir);
-  const bots = yield* listBotsInDirectory(paths.directory, taskCountsByBot);
+  const bots = yield* listBotsInDirectory(paths.directory, homesByBot);
   return {
     directory: paths.directory,
     bots,
@@ -272,7 +284,13 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
 
   const paths = yield* resolveBotStoragePaths(stateDir);
   const existing = yield* listBotsInDirectory(paths.directory);
-  if (existing.some((bot) => bot.name.toLowerCase() === name.toLowerCase())) {
+  if (existing.some((bot) => bot.id === input.id)) {
+    return yield* new BotCreateValidationError({ detail: `Bot '${input.id}' already exists.` });
+  }
+  if (
+    input.id === undefined &&
+    existing.some((bot) => bot.name.toLowerCase() === name.toLowerCase())
+  ) {
     return yield* new BotCreateValidationError({
       detail: `A bot named "${name}" already exists.`,
     });
@@ -282,7 +300,7 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
     .makeDirectory(paths.directory, { recursive: true })
     .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
 
-  const botId = NodeCrypto.randomUUID().toLowerCase();
+  const botId = input.id ?? NodeCrypto.randomUUID().toLowerCase();
   const botDir = path.join(paths.directory, botId);
   const nowIso = DateTime.formatIso(yield* DateTime.now);
   const createdDate = nowIso.slice(0, 10);
@@ -309,7 +327,7 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
     const rosterPath = path.join(paths.directory, "_shared", "roster.md");
     if (yield* isFile(rosterPath)) {
       const rosterRaw = yield* fs.readFileString(rosterPath).pipe(Effect.orElseSucceed(() => ""));
-      if (rosterRaw && !rosterRaw.includes(botId)) {
+      if (rosterRaw && !rosterRaw.includes(`\`${botId}\``)) {
         const marker = "## 标准交接格式";
         const row = `| \`${botId}\` | ${escapeMarkdownTableCell(name)} | draft | ${escapeMarkdownTableCell(summary || "待补充")} | 待补充 |`;
         const markerIndex = rosterRaw.indexOf(marker);
@@ -359,4 +377,64 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
     });
   }
   return created;
+});
+
+/**
+ * Home's standing instructions. Providers read `AGENTS.md` (Claude reads `CLAUDE.md`) from the
+ * workspace root, so the Home thread gets them on every turn without any prompt plumbing.
+ */
+export const MAIN_BOT_HOME_INSTRUCTIONS = `# Bot
+
+You are Bot, the user's single front desk in T3 Code. Your persona and standing notes are in
+../SOUL.md and ../memory/.
+
+## How you work
+
+- Do not do the work yourself: no editing files, running commands, or research in this thread.
+- Turn what the user wants into one or more sessions, one topic each. Start each with
+  \`t3_thread_launch\`: a short \`title\`, a self-contained \`message\`, no \`projectId\` (sessions
+  belong to this Bot), and always this \`outputSchema\`:
+  ${JSON.stringify(BOT_SESSION_RECEIPT_JSON_SCHEMA)}
+- After launching, say nothing more than one short line naming the session. Do not describe how
+  it will work, and do not wait on it.
+- A "Session receipt" message arrives when a session finishes. Tell the user the outcome in one
+  or two sentences and anything they must decide. Do not repeat the session's work.
+- For progress, look up this Bot's sessions with \`t3_thread_list\` and \`t3_thread_read\` instead
+  of relying on earlier messages here.
+- If a request could belong to more than one open session, ask which one first. To follow up on
+  a session, use \`t3_thread_send\` with the same \`outputSchema\` instead of starting a new one.
+- Reply in the user's language.
+`;
+
+const writeFileIfMissing = Effect.fn("bot.writeFileIfMissing")(function* (
+  filePath: string,
+  content: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  if (yield* isFile(filePath)) return;
+  yield* fs.makeDirectory(path.dirname(filePath), { recursive: true });
+  yield* fs.writeFileString(filePath, content);
+});
+
+/** The main bot is created on first use so the user always has one to open. */
+export const ensureMainBotInStateDir = Effect.fn("bot.ensureMainBot")(function* (stateDir: string) {
+  const path = yield* Path.Path;
+  const { bots } = yield* listStateDirBots(stateDir);
+  const main =
+    bots.find((bot) => bot.id === MAIN_BOT_ID) ??
+    (yield* createBotInStateDir(stateDir, {
+      id: MAIN_BOT_ID,
+      name: "Bot",
+      summary: "Takes every request, dispatches sessions, and reports back.",
+    }));
+  // Missing files only: the user may have edited them.
+  const workspace = path.join(main.path, "workspace");
+  yield* writeFileIfMissing(path.join(workspace, "AGENTS.md"), MAIN_BOT_HOME_INSTRUCTIONS).pipe(
+    Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })),
+  );
+  yield* writeFileIfMissing(path.join(workspace, "CLAUDE.md"), "@AGENTS.md\n").pipe(
+    Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })),
+  );
+  return main;
 });

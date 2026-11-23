@@ -3,7 +3,6 @@ import { useSyncExternalStore } from "react";
 
 import {
   BOT_CLIENT_PREFERENCES_STORAGE_KEY,
-  BOT_LEGACY_SIDEBAR_OPEN_STORAGE_KEY,
   BotClientPreferencesSchema,
   DEFAULT_BOT_CLIENT_PREFERENCES,
   type BotClientPreferences,
@@ -15,7 +14,6 @@ const decodePreferences = Schema.decodeUnknownSync(
   Schema.fromJsonString(BotClientPreferencesSchema),
 );
 const encodePreferences = Schema.encodeSync(Schema.fromJsonString(BotClientPreferencesSchema));
-const decodeLegacyBoolean = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Boolean));
 
 const memoryStorage = new Map<string, string>();
 const listeners = new Set<() => void>();
@@ -58,16 +56,6 @@ function removeStorageItem(key: string): void {
   memoryStorage.delete(key);
 }
 
-function readLegacySidebarOpen(): boolean {
-  const legacyRaw = readStorageItem(BOT_LEGACY_SIDEBAR_OPEN_STORAGE_KEY);
-  if (legacyRaw === null) return DEFAULT_BOT_CLIENT_PREFERENCES.sidebarBotsPanelOpen;
-  try {
-    return decodeLegacyBoolean(legacyRaw);
-  } catch {
-    return DEFAULT_BOT_CLIENT_PREFERENCES.sidebarBotsPanelOpen;
-  }
-}
-
 export function getBotClientPreferences(): BotClientPreferences {
   const raw = readStorageItem(BOT_CLIENT_PREFERENCES_STORAGE_KEY);
   if (raw === cachedRaw && cachedRaw !== undefined) {
@@ -75,10 +63,7 @@ export function getBotClientPreferences(): BotClientPreferences {
   }
   cachedRaw = raw;
   if (raw === null) {
-    cachedSnapshot = {
-      ...DEFAULT_BOT_CLIENT_PREFERENCES,
-      sidebarBotsPanelOpen: readLegacySidebarOpen(),
-    };
+    cachedSnapshot = DEFAULT_BOT_CLIENT_PREFERENCES;
     return cachedSnapshot;
   }
   try {
@@ -120,7 +105,6 @@ export function updateBotClientPreferences(
 
 export function resetBotClientPreferences(): void {
   removeStorageItem(BOT_CLIENT_PREFERENCES_STORAGE_KEY);
-  removeStorageItem(BOT_LEGACY_SIDEBAR_OPEN_STORAGE_KEY);
   cachedRaw = undefined;
   cachedSnapshot = DEFAULT_BOT_CLIENT_PREFERENCES;
   notifyPreferenceListeners();
@@ -134,11 +118,7 @@ export function subscribeBotClientPreferences(listener: () => void): () => void 
     };
   }
   const onStorage = (event: StorageEvent) => {
-    if (
-      event.key === null ||
-      event.key === BOT_CLIENT_PREFERENCES_STORAGE_KEY ||
-      event.key === BOT_LEGACY_SIDEBAR_OPEN_STORAGE_KEY
-    ) {
+    if (event.key === null || event.key === BOT_CLIENT_PREFERENCES_STORAGE_KEY) {
       cachedRaw = undefined;
       listener();
     }
