@@ -73,7 +73,11 @@ export const botHttpRoutesLayer = Layer.unwrap(
     // Concurrent first requests must not write the main bot's directory twice.
     const mainBotLock = yield* Semaphore.make(1);
     const ensureMainBot = mainBotLock
-      .withPermits(1)(ensureMainBotInStateDir(stateDir))
+      .withPermits(1)(
+        store
+          .getHomesByBot()
+          .pipe(Effect.flatMap((homes) => ensureMainBotInStateDir(stateDir, homes))),
+      )
       .pipe(
         Effect.asVoid,
         Effect.catchCause((cause) => Effect.logWarning("bot main bot creation failed", { cause })),

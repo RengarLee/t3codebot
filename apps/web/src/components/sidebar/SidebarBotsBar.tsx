@@ -1,4 +1,4 @@
-import { useBotProjectIds } from "@t3tools/bot/web/botList";
+import { useBotProjectIds, useReloadBotListOnNewProjects } from "@t3tools/bot/web/botList";
 import { createBotTranslator } from "@t3tools/bot/web/i18n";
 import { useBotClientPreferences } from "@t3tools/bot/web/preferences";
 import { SidebarMainBotEntry } from "@t3tools/bot/web/SidebarMainBotEntry";
@@ -215,7 +215,12 @@ export function useThreadsWithoutBotSessions<
   T extends { readonly environmentId: string; readonly projectId: string },
 >(threads: readonly T[]): readonly T[] {
   const environmentId = usePrimaryEnvironmentId();
-  const botProjectIds = useBotProjectIds(useEnvironmentHttpBaseUrl(environmentId));
+  const httpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
+  const botProjectIds = useBotProjectIds(httpBaseUrl);
+  useReloadBotListOnNewProjects(
+    httpBaseUrl,
+    threads.map((thread) => thread.projectId),
+  );
   if (botProjectIds.size === 0) return threads;
   return threads.filter(
     (thread) => thread.environmentId !== environmentId || !botProjectIds.has(thread.projectId),

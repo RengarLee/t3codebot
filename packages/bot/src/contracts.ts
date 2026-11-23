@@ -36,6 +36,9 @@ export const BotSummarySchema = Schema.Struct({
   name: Schema.String,
   status: Schema.String,
   summary: Schema.String,
+  /** Kinds of work this bot owns and refuses; Bot routes by them. */
+  inScope: Schema.Array(Schema.String),
+  outOfScope: Schema.Array(Schema.String),
   version: Schema.String,
   sessionMode: Schema.String,
   skillsCount: Schema.Int,
@@ -86,6 +89,45 @@ export const BOT_SESSION_RECEIPT_JSON_SCHEMA = {
       type: "array",
       items: { type: "string" },
       description: "Paths or links to what the session produced. Empty when none.",
+    },
+  },
+} as const;
+
+/** What a "Create sub-bot" session hands back; the bot server builds the sub-bot from it. */
+export const BotSubBotSpecSchema = Schema.Struct({
+  name: Schema.String,
+  summary: Schema.String,
+  inScope: Schema.Array(Schema.String),
+  outOfScope: Schema.Array(Schema.String),
+  persona: Schema.String,
+  projects: Schema.Array(Schema.String),
+});
+export type BotSubBotSpec = typeof BotSubBotSpecSchema.Type;
+
+/** `BotSubBotSpecSchema` as the JSON Schema Home passes to `t3_thread_launch`. */
+export const BOT_SUB_BOT_SPEC_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name", "summary", "inScope", "outOfScope", "persona", "projects"],
+  properties: {
+    name: { type: "string", description: "Short display name, unique among sub-bots." },
+    summary: { type: "string", description: "One sentence: what this sub-bot is for." },
+    inScope: {
+      type: "array",
+      items: { type: "string" },
+      description: "3-5 kinds of work it owns, split by workflow, not by topic.",
+    },
+    outOfScope: {
+      type: "array",
+      items: { type: "string" },
+      description: "Work it must not take, and where that work goes instead.",
+    },
+    persona: { type: "string", description: "Two or three sentences: who it is and how it works." },
+    projects: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Absolute folder paths of the projects it may hand code work to. Empty when it does no code work.",
     },
   },
 } as const;
