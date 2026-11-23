@@ -1,14 +1,13 @@
 import { useBotProjectIds } from "@t3tools/bot/web/botList";
 import { createBotTranslator } from "@t3tools/bot/web/i18n";
-import { updateBotClientPreferences, useBotClientPreferences } from "@t3tools/bot/web/preferences";
-import { SidebarBotsSection } from "@t3tools/bot/web/SidebarBotsSection";
+import { useBotClientPreferences } from "@t3tools/bot/web/preferences";
+import { SidebarMainBotEntry } from "@t3tools/bot/web/SidebarMainBotEntry";
 import type { BotSummary } from "@t3tools/bot/contracts";
 import { ProjectId, ThreadId, type EnvironmentId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useSyncExternalStore } from "react";
 
 import { getI18nSnapshot, subscribeI18n } from "../../i18n/runtime";
-import { deriveProjectIdentity } from "../../projectIdentity";
 import {
   useProject,
   useServerConfigs,
@@ -35,14 +34,12 @@ import { getTriggerDisplayModelName } from "../chat/providerIconUtils";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { ProjectMonogram } from "../ProjectMonogram";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { Tooltip, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 
 export function SidebarBotsBar() {
   const { locale } = useSyncExternalStore(subscribeI18n, getI18nSnapshot);
   const enabled = useBotClientPreferences((preferences) => preferences.botsBarEnabled);
-  const expanded = useBotClientPreferences((preferences) => preferences.sidebarBotsPanelOpen);
   const environmentId = usePrimaryEnvironmentId();
   const httpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
   const navigate = useNavigate();
@@ -60,27 +57,25 @@ export function SidebarBotsBar() {
     <div className="mx-0.5 mt-1" data-testid="sidebar-bots-bar">
       {/* Same hover timing as the thread list's provider in Sidebar. */}
       <TooltipProvider delay={150} closeDelay={0} timeout={400}>
-        <SidebarBotsSection
+        <SidebarMainBotEntry
           locale={locale}
           httpBaseUrl={httpBaseUrl}
-          expanded={expanded}
-          onToggleExpanded={() => updateBotClientPreferences({ sidebarBotsPanelOpen: !expanded })}
           activeProjectId={
             routeThread !== null && routeThread.environmentId === environmentId
               ? routeThread.projectId
               : null
           }
           onOpenThread={openThread}
-          renderBotIcon={(name) => {
-            const identity = deriveProjectIdentity(name);
-            return <ProjectMonogram text={identity.monogram} color={identity.color} />;
-          }}
           renderBotRow={(row, bot) => (
             <Tooltip>
               <TooltipTrigger render={row} />
               <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
                 {environmentId === null ? null : (
-                  <BotHoverCard bot={bot} environmentId={environmentId} />
+                  <BotHoverCard
+                    bot={bot}
+                    title={createBotTranslator(locale)("bots.main.title")}
+                    environmentId={environmentId}
+                  />
                 )}
               </ThreadHoverCardPopup>
             </Tooltip>
@@ -134,7 +129,7 @@ function BotSidebarStatusPills({
         runningLabel={t("bots.overview.running")}
         doneCount={doneCount}
         doneLabel={t("bots.overview.done")}
-        testIdPrefix={`sidebar-bot-${bot.id}`}
+        testIdPrefix="sidebar-main-bot"
       />
     </span>
   );
@@ -143,9 +138,11 @@ function BotSidebarStatusPills({
 /** The thread hover card's rows for a bot, read from its project and its sessions there. */
 function BotHoverCard({
   bot,
+  title,
   environmentId,
 }: {
   readonly bot: BotSummary;
+  readonly title: string;
   readonly environmentId: EnvironmentId;
 }) {
   const project = useProject(
@@ -175,7 +172,7 @@ function BotHoverCard({
     : modelSelection?.model;
   // Rows mirror SidebarThreadTooltip; copied so the upstream file stays untouched.
   return (
-    <ThreadHoverCard title={bot.name}>
+    <ThreadHoverCard title={title}>
       {project ? (
         <div className="flex min-w-0 items-center gap-2">
           <ProjectFavicon project={project} className="size-3 shrink-0" />

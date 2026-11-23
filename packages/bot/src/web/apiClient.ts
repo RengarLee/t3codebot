@@ -2,14 +2,10 @@ import * as Effect from "effect/Effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import {
-  BOT_CREATE_ROUTE,
   BOT_LIST_ROUTE,
   BOT_TASKS_ROUTE_PREFIX,
-  BotCreateResponseSchema,
   BotEnsureHomeResponseSchema,
   BotListResponseSchema,
-  type BotCreateInput,
-  type BotCreateResponse,
   type BotEnsureHomeResponse,
   type BotListResponse,
 } from "../contracts.ts";
@@ -61,25 +57,6 @@ export function fetchBotList(options?: BotApiClientOptions): Promise<BotListResp
       Effect.provide(FetchHttpClient.layer),
     ),
   );
-}
-
-export async function createBot(
-  input: BotCreateInput,
-  options?: BotApiClientOptions,
-): Promise<BotCreateResponse> {
-  const request = HttpClientRequest.post(buildBotUrl(BOT_CREATE_ROUTE, options?.httpBaseUrl)).pipe(
-    HttpClientRequest.bodyJsonUnsafe(input),
-  );
-
-  const decoded = await Effect.runPromise(
-    HttpClient.execute(request).pipe(
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap(HttpClientResponse.schemaBodyJson(BotCreateResponseSchema)),
-      Effect.provide(FetchHttpClient.layer),
-    ),
-  );
-  notifyBotsServerStateChanged();
-  return decoded;
 }
 
 /** Binds the bot's Home thread, launching one in the bot's project when none is live. */

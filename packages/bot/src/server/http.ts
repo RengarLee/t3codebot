@@ -5,28 +5,26 @@ import * as Semaphore from "effect/Semaphore";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import {
-  BOT_CREATE_ROUTE,
   BOT_HEALTH_ROUTE,
   BOT_LIST_ROUTE,
   BOT_TASKS_ROUTE_PREFIX,
   BotBindHomeInputSchema,
-  BotCreateInputSchema,
   BotCreateTaskInputSchema,
   BotUpdateTaskInputSchema,
+  MAIN_BOT_ID,
   type BotHealthResponse,
 } from "../contracts.ts";
 import { openBotStore, type BotHome, type BotStoreFailure } from "./db.ts";
 import { startBotEventSyncWorker } from "./eventSync.ts";
-import { BotNotFoundError, ensureBotHome, ensureBotProject, type BotHomeDeps } from "./home.ts";
+import { BotNotFoundError, ensureBotHome, type BotHomeDeps } from "./home.ts";
 import { BotServerHost, type BotHostError } from "./host.ts";
-import { createBotInStateDir, listStateDirBots, type BotCreateFailure } from "./registry.ts";
+import { ensureMainBotInStateDir, listStateDirBots } from "./registry.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
 const NO_STORE_HEADERS = {
   "cache-control": "no-store",
 } as const;
 
-const decodeCreateBot = Schema.decodeUnknownEffect(BotCreateInputSchema);
 const decodeBindHome = Schema.decodeUnknownEffect(BotBindHomeInputSchema);
 const decodeCreateTask = Schema.decodeUnknownEffect(BotCreateTaskInputSchema);
 const decodeUpdateTask = Schema.decodeUnknownEffect(BotUpdateTaskInputSchema);
@@ -76,15 +74,6 @@ function homeFailureResponse(error: BotStoreFailure | BotNotFoundError | BotHost
   }
 }
 
-function createBotFailureResponse(error: BotCreateFailure) {
-  switch (error._tag) {
-    case "BotCreateValidationError":
-      return jsonError(error.message, 400);
-    case "BotCreateIoError":
-      return jsonError(error.message, 500);
-  }
-}
-
 function parseTaskSubpath(originalUrl: string): ReadonlyArray<string> | null {
   const pathname = new URL(originalUrl, "http://localhost").pathname;
   const prefix = `${BOT_TASKS_ROUTE_PREFIX}/`;
@@ -112,8 +101,25 @@ export const botHttpRoutesLayer = Layer.unwrap(
     // Two clients opening Home at once must not launch two Home threads.
     const homeLock = yield* Semaphore.make(1);
 
-    if (host.orchestration !== undefined) {
-      yield* startBotEventSyncWorker(store, host.orchestration);
+    // Concurrent first requests must not write the main bot's directory twice.
+    const mainBotLock = yield* Semaphore.make(1);
+    const ensureMainBot = mainBotLock
+      .withPermits(1)(ensureMainBotInStateDir(stateDir))
+      .pipe(
+        Effect.asVoid,
+        Effect.catchCause((cause) => Effect.logWarning("bot main bot creation failed", { cause })),
+      );
+    yield* ensureMainBot;
+
+    if (homeDeps !== null) {
+      yield* startBotEventSyncWorker(store, homeDeps.orchestration);
+      // Best effort so the first click opens instantly; the sidebar retries on demand.
+      yield* homeLock
+        .withPermits(1)(ensureBotHome(homeDeps, MAIN_BOT_ID))
+        .pipe(
+          Effect.catchCause((cause) => Effect.logWarning("bot main Home warmup failed", { cause })),
+          Effect.forkScoped,
+        );
     }
 
     const healthRoute = HttpRouter.add(
@@ -129,6 +135,7 @@ export const botHttpRoutesLayer = Layer.unwrap(
       "GET",
       BOT_LIST_ROUTE,
       Effect.gen(function* () {
+        yield* ensureMainBot;
         const taskCounts = yield* store
           .getTaskCountsByBot()
           .pipe(Effect.orElseSucceed(() => new Map()));
@@ -138,31 +145,6 @@ export const botHttpRoutesLayer = Layer.unwrap(
         const result = yield* listStateDirBots(stateDir, taskCounts, homes);
         return jsonOk(result);
       }),
-    );
-
-    const createBotRoute = HttpRouter.add(
-      "POST",
-      BOT_CREATE_ROUTE,
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const raw = yield* request.json.pipe(Effect.option);
-        if (raw._tag === "None") return jsonError("Invalid JSON body.", 400);
-        const decoded = yield* decodeCreateBot(raw.value).pipe(Effect.option);
-        if (decoded._tag === "None") return jsonError("Invalid create bot payload.", 400);
-        const bot = yield* createBotInStateDir(stateDir, decoded.value);
-        if (homeDeps === null) return jsonOk({ bot }, 201);
-        // The bot exists on disk either way; Home retries the project on first open.
-        const projectId = yield* ensureBotProject(homeDeps, bot).pipe(
-          Effect.map((ensured) => ensured.projectId),
-          Effect.catchCause((cause) =>
-            Effect.as(
-              Effect.logWarning("bot project creation failed", { botId: bot.id, cause }),
-              null,
-            ),
-          ),
-        );
-        return jsonOk({ bot: { ...bot, projectId } }, 201);
-      }).pipe(Effect.catch((error) => Effect.succeed(createBotFailureResponse(error)))),
     );
 
     const tasksWildcardRoute = HttpRouter.add(
@@ -232,6 +214,6 @@ export const botHttpRoutesLayer = Layer.unwrap(
       }).pipe(Effect.catch((error) => Effect.succeed(homeFailureResponse(error)))),
     );
 
-    return Layer.mergeAll(healthRoute, listBotsRoute, createBotRoute, tasksWildcardRoute);
+    return Layer.mergeAll(healthRoute, listBotsRoute, tasksWildcardRoute);
   }),
 );

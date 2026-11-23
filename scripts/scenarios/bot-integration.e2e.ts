@@ -19,53 +19,51 @@ const fetchBotHealth = (baseUrl: string) =>
   );
 
 test(
-  "Bot module health route, sidebar toggle, independent i18n, and settings persistence work end to end",
+  "Bot is the only sidebar bot entry and bot creation is gone from the palette and Settings",
   WEB,
   async ({ t3, app, browser, screen }) => {
     await t3.project("demo", { "README.md": "# t3codebot\n" });
     await t3.open();
 
-    // 1. Isolated server route mounted via @t3tools/bot responds on /api/bots/health.
+    // 1. The server guarantees the Bot before any client asks for it.
     const body = await runPromise(fetchBotHealth(app.baseUrl ?? ""));
-    expect(body).toEqual({
-      ok: true,
-      module: "t3codebot",
-      botsCount: 0,
-    });
+    expect(body).toEqual({ ok: true, module: "t3codebot", botsCount: 1 });
 
-    // 2. SidebarBotsBar renders expanded by default and collapses/expands its independent state.
+    // 2. The sidebar shows the single Bot entry; sub-bots never appear there.
     const botsBar = browser.locator('[data-testid="sidebar-bots-bar"]');
-    await expect(botsBar).toBeVisible();
-    await expect(botsBar.getByText("No bots yet")).toBeVisible();
-    await botsBar.getByRole("button", { name: "Bots" }).click();
-    await expect(botsBar.getByText("No bots yet")).toBeHidden();
-    await botsBar.getByRole("button", { name: "Bots" }).click();
-    await expect(botsBar.getByText("No bots yet")).toBeVisible();
+    const mainBot = browser.locator(
+      '[data-testid="sidebar-bots-bar"] [data-testid="sidebar-main-bot"]',
+    );
+    await expect(mainBot).toBeVisible();
+    await expect(mainBot).toHaveText(/^Bot$/);
+    await expect(browser.locator('[data-testid="sidebar-bots-bar"] button')).toHaveCount(1);
 
-    // 3. Settings -> Bots toggles the sidebar bar and persists across navigation without ClientSettings edits.
+    // 3. The add-project palette no longer offers "Create bot".
+    await screen.getByRole("button", "Add project").tap();
+    await expect(screen.getByText("Git URL")).toBeVisible();
+    await expect(screen.getByText("Create bot")).toBeHidden();
+    await browser.keyboard.press("Escape");
+
+    // 4. Settings -> Bots lists the Bot with no create control, and toggles the sidebar entry.
     await app.open("/settings/bots");
-    const toggle = screen.getByRole("switch", "Show Bots Bar");
-    await expect(toggle).toBeVisible();
+    await expect(browser.locator('[data-testid="settings-bot-main"]')).toBeVisible();
+    await expect(screen.getByText("Create bot")).toBeHidden();
+    const toggle = screen.getByRole("switch", "Show Bot");
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
-
     await app.open("/");
     await expect(botsBar).toBeHidden();
 
-    // 4. Settings search discovers the bot setting and re-enables the sidebar bar.
+    // 5. Settings search finds the setting and restores the entry.
     await app.open("/settings/general");
-    const searchInput = browser.locator('input[aria-label="Search settings"]');
-    await searchInput.fill("Show Bots Bar");
-    await screen.getByText("Show Bots Bar").first().click();
-
-    const restoredToggle = screen.getByRole("switch", "Show Bots Bar");
-    await expect(restoredToggle).toBeVisible();
+    await browser.locator('input[aria-label="Search settings"]').fill("Show Bot");
+    await screen.getByText("Show Bot").first().click();
+    const restoredToggle = screen.getByRole("switch", "Show Bot");
     await restoredToggle.click();
     await expect(restoredToggle).toHaveAttribute("aria-checked", "true");
-
     await app.open("/");
-    await expect(botsBar).toBeVisible();
-    await app.screenshot("bots-restored");
+    await expect(mainBot).toBeVisible();
+    await app.screenshot("main-bot-entry");
   },
 );

@@ -60,7 +60,7 @@ export const ensureBotHome = Effect.fn("bot.home.ensure")(function* (
 
   const launched = yield* deps.orchestration.launchThread({
     projectId,
-    title: `${bot.name} Home`,
+    title: bot.role === "main" ? "Home" : `${bot.name} Home`,
   });
   return yield* deps.store.upsertHome(bot.id, {
     homeThreadId: launched.threadId,

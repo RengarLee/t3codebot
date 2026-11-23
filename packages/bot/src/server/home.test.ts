@@ -10,7 +10,8 @@ import * as Stream from "effect/Stream";
 import { openBotStore } from "./db.ts";
 import { ensureBotHome } from "./home.ts";
 import type { BotHostOrchestrationShape } from "./host.ts";
-import { createBotInStateDir } from "./registry.ts";
+import { MAIN_BOT_ID } from "../contracts.ts";
+import { createBotInStateDir, ensureMainBotInStateDir } from "./registry.ts";
 
 const nodeLayer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer);
 
@@ -70,6 +71,10 @@ describe("bot Home", () => {
         expect(relaunched.homeThreadId).not.toBe(first.homeThreadId);
         expect(relaunched.projectId).toBe(first.projectId);
         expect((yield* store.getHome(bot.id))?.homeThreadId).toBe(relaunched.homeThreadId);
+
+        yield* ensureMainBotInStateDir(stateDir);
+        yield* ensureBotHome(deps, MAIN_BOT_ID);
+        expect(host.launches.at(-1)?.title).toBe("Home");
 
         const missing = yield* Effect.flip(ensureBotHome(deps, "no-such-bot"));
         expect(missing._tag).toBe("BotNotFoundError");

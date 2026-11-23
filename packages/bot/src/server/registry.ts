@@ -7,7 +7,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import type { BotCreateInput, BotListResponse, BotSummary } from "../contracts.ts";
+import { MAIN_BOT_ID, type BotListResponse, type BotSummary } from "../contracts.ts";
 import type { BotHome, BotTaskCounts } from "./db.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
@@ -34,6 +34,13 @@ export class BotCreateIoError extends Schema.TaggedError<
 }
 
 export type BotCreateFailure = BotCreateValidationError | BotCreateIoError;
+
+export interface BotCreateInput {
+  readonly name: string;
+  readonly summary?: string | undefined;
+  /** Fixed directory and id; a random UUID otherwise. */
+  readonly id?: string | undefined;
+}
 
 export interface ParsedBotYaml {
   readonly id?: string;
@@ -182,6 +189,7 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
     const counts = taskCountsByBot?.get(id);
     bots.push({
       id,
+      role: id === MAIN_BOT_ID ? "main" : "sub",
       name: parsed.name?.trim() || entry,
       status: parsed.status?.trim() || "draft",
       summary: parsed.summary?.trim() || "",
@@ -276,7 +284,13 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
 
   const paths = yield* resolveBotStoragePaths(stateDir);
   const existing = yield* listBotsInDirectory(paths.directory);
-  if (existing.some((bot) => bot.name.toLowerCase() === name.toLowerCase())) {
+  if (existing.some((bot) => bot.id === input.id)) {
+    return yield* new BotCreateValidationError({ detail: `Bot '${input.id}' already exists.` });
+  }
+  if (
+    input.id === undefined &&
+    existing.some((bot) => bot.name.toLowerCase() === name.toLowerCase())
+  ) {
     return yield* new BotCreateValidationError({
       detail: `A bot named "${name}" already exists.`,
     });
@@ -286,7 +300,7 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
     .makeDirectory(paths.directory, { recursive: true })
     .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
 
-  const botId = NodeCrypto.randomUUID().toLowerCase();
+  const botId = input.id ?? NodeCrypto.randomUUID().toLowerCase();
   const botDir = path.join(paths.directory, botId);
   const nowIso = DateTime.formatIso(yield* DateTime.now);
   const createdDate = nowIso.slice(0, 10);
@@ -313,7 +327,7 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
     const rosterPath = path.join(paths.directory, "_shared", "roster.md");
     if (yield* isFile(rosterPath)) {
       const rosterRaw = yield* fs.readFileString(rosterPath).pipe(Effect.orElseSucceed(() => ""));
-      if (rosterRaw && !rosterRaw.includes(botId)) {
+      if (rosterRaw && !rosterRaw.includes(`\`${botId}\``)) {
         const marker = "## 标准交接格式";
         const row = `| \`${botId}\` | ${escapeMarkdownTableCell(name)} | draft | ${escapeMarkdownTableCell(summary || "待补充")} | 待补充 |`;
         const markerIndex = rosterRaw.indexOf(marker);
@@ -363,4 +377,16 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
     });
   }
   return created;
+});
+
+/** The main bot is created on first use so the user always has one to open. */
+export const ensureMainBotInStateDir = Effect.fn("bot.ensureMainBot")(function* (stateDir: string) {
+  const { bots } = yield* listStateDirBots(stateDir);
+  const existing = bots.find((bot) => bot.id === MAIN_BOT_ID);
+  if (existing !== undefined) return existing;
+  return yield* createBotInStateDir(stateDir, {
+    id: MAIN_BOT_ID,
+    name: "Bot",
+    summary: "Takes every request, dispatches sessions, and reports back.",
+  });
 });
