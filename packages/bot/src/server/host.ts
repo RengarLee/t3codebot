@@ -27,6 +27,7 @@ export interface BotHostEnsureProjectInput {
 export interface BotHostThreadInfo {
   readonly threadId: string;
   readonly projectId: string;
+  readonly title: string;
 }
 
 export interface BotHostLaunchThreadInput {

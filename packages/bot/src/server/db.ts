@@ -1,5 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Isolated bot SQLite store backed by built-in node:sqlite.
-import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
@@ -11,17 +10,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
-import type {
-  BotBindHomeInput,
-  BotCreateTaskInput,
-  BotHomeCardKind,
-  BotHomeCardRecord,
-  BotHomeRecord,
-  BotTaskRecord,
-  BotTaskStatus,
-  BotTasksResponse,
-  BotUpdateTaskInput,
-} from "../contracts.ts";
+import type { BotHomeRecord, BotSessionReceipt } from "../contracts.ts";
 import { BotServerHost } from "./host.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
@@ -31,9 +20,10 @@ export interface BotHome {
   readonly homeThreadId: string | null;
 }
 
-export interface BotTaskCounts {
-  readonly active: number;
-  readonly completed: number;
+/** The validated receipt a session last handed back, keyed by its T3 thread id. */
+export interface BotSessionReceiptRecord extends BotSessionReceipt {
+  readonly threadId: string;
+  readonly receivedAt: string;
 }
 
 export class BotStoreError extends Schema.TaggedError<
@@ -48,77 +38,22 @@ export class BotStoreError extends Schema.TaggedError<
   }
 }
 
-export class BotTaskNotFoundError extends Schema.TaggedError<
-  BotTaskNotFoundError,
-  { readonly brand: unique symbol }
->()("BotTaskNotFoundError", {
-  botId: Schema.String,
-  taskId: Schema.String,
-}) {
-  override get message(): string {
-    return `Task '${this.taskId}' was not found for bot '${this.botId}'.`;
-  }
-}
-
-export class BotStoreValidationError extends Schema.TaggedError<
-  BotStoreValidationError,
-  { readonly brand: unique symbol }
->()("BotStoreValidationError", {
-  detail: Schema.String,
-}) {
-  override get message(): string {
-    return this.detail;
-  }
-}
-
-export type BotStoreFailure = BotStoreError | BotTaskNotFoundError | BotStoreValidationError;
-
 export interface BotStoreShape {
   readonly sqlitePath: string;
-  readonly getTaskCountsByBot: () => Effect.Effect<
-    ReadonlyMap<string, BotTaskCounts>,
-    BotStoreError
-  >;
   readonly getHome: (botId: string) => Effect.Effect<BotHomeRecord | null, BotStoreError>;
   readonly getHomesByBot: () => Effect.Effect<ReadonlyMap<string, BotHome>, BotStoreError>;
   readonly upsertHome: (
     botId: string,
-    input: BotBindHomeInput,
-  ) => Effect.Effect<BotHomeRecord, BotStoreFailure>;
-  /**
-   * Hard anti-pollution query for Home context assembly:
-   * strictly returns only `active` and `waiting_user` tasks, excluding `completed` and `archived`.
-   */
-  readonly listActiveTasksForHomeContext: (
+    input: { readonly homeThreadId: string | null; readonly projectId: string | null },
+  ) => Effect.Effect<BotHomeRecord, BotStoreError>;
+  readonly upsertSessionReceipt: (
     botId: string,
-  ) => Effect.Effect<ReadonlyArray<BotTaskRecord>, BotStoreError>;
-  readonly listBotTasks: (
+    threadId: string,
+    receipt: BotSessionReceipt,
+  ) => Effect.Effect<void, BotStoreError>;
+  readonly listSessionReceipts: (
     botId: string,
-    options?: { readonly recentCardsLimit?: number | undefined },
-  ) => Effect.Effect<BotTasksResponse, BotStoreError>;
-  readonly getTask: (
-    botId: string,
-    taskId: string,
-  ) => Effect.Effect<BotTaskRecord | null, BotStoreError>;
-  readonly findTaskByChildThreadId: (
-    childThreadId: string,
-  ) => Effect.Effect<BotTaskRecord | null, BotStoreError>;
-  readonly createTask: (
-    botId: string,
-    input: BotCreateTaskInput,
-  ) => Effect.Effect<
-    { readonly task: BotTaskRecord; readonly card: BotHomeCardRecord },
-    BotStoreFailure
-  >;
-  readonly updateTask: (
-    botId: string,
-    taskId: string,
-    input: BotUpdateTaskInput,
-  ) => Effect.Effect<
-    { readonly task: BotTaskRecord; readonly card: BotHomeCardRecord | null },
-    BotStoreFailure
-  >;
-  readonly deleteTask: (botId: string, taskId: string) => Effect.Effect<boolean, BotStoreError>;
+  ) => Effect.Effect<ReadonlyArray<BotSessionReceiptRecord>, BotStoreError>;
 }
 
 export class BotStore extends Context.Service<BotStore, BotStoreShape>()(
@@ -182,6 +117,33 @@ const MIGRATIONS: ReadonlyArray<Migration> = [
         WHERE child_thread_id IS NOT NULL;
     `,
   },
+  {
+    version: 3,
+    name: "drop_tasks_and_cards",
+    sql: `
+      DROP TABLE IF EXISTS bot_home_cards;
+      DROP TABLE IF EXISTS bot_tasks;
+    `,
+  },
+  {
+    version: 4,
+    name: "session_receipts",
+    sql: `
+      CREATE TABLE IF NOT EXISTS bot_session_receipts (
+        thread_id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('done', 'blocked', 'needs_decision')),
+        outcome TEXT NOT NULL,
+        artifacts_json TEXT NOT NULL,
+        received_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_bot_session_receipts_bot
+        ON bot_session_receipts (bot_id, received_at DESC);
+
+      DROP TABLE IF EXISTS bot_session_summaries;
+    `,
+  },
 ];
 
 interface RawHomeRow {
@@ -191,34 +153,9 @@ interface RawHomeRow {
   readonly updated_at: string;
 }
 
-interface RawTaskRow {
-  readonly id: string;
-  readonly bot_id: string;
-  readonly child_thread_id: string | null;
-  readonly title: string;
-  readonly goal: string;
-  readonly status: BotTaskStatus;
-  readonly latest_decision: string | null;
-  readonly latest_summary: string;
-  readonly created_at: string;
-  readonly updated_at: string;
-  readonly completed_at: string | null;
-}
-
-interface RawCardRow {
-  readonly id: string;
-  readonly bot_id: string;
-  readonly task_id: string | null;
-  readonly kind: BotHomeCardKind;
-  readonly content: string;
-  readonly created_at: string;
-}
-
-interface RawCountRow {
-  readonly bot_id: string;
-  readonly status: BotTaskStatus;
-  readonly cnt: number;
-}
+const decodeArtifacts = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Array(Schema.String)),
+);
 
 function mapHomeRow(row: RawHomeRow): BotHomeRecord {
   return {
@@ -227,37 +164,6 @@ function mapHomeRow(row: RawHomeRow): BotHomeRecord {
     projectId: row.project_id,
     updatedAt: row.updated_at,
   };
-}
-
-function mapTaskRow(row: RawTaskRow): BotTaskRecord {
-  return {
-    id: row.id,
-    botId: row.bot_id,
-    childThreadId: row.child_thread_id,
-    title: row.title,
-    goal: row.goal,
-    status: row.status,
-    latestDecision: row.latest_decision,
-    latestSummary: row.latest_summary,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    completedAt: row.completed_at,
-  };
-}
-
-function mapCardRow(row: RawCardRow): BotHomeCardRecord {
-  return {
-    id: row.id,
-    botId: row.bot_id,
-    taskId: row.task_id,
-    kind: row.kind,
-    content: row.content,
-    createdAt: row.created_at,
-  };
-}
-
-function isTerminalStatus(status: BotTaskStatus): boolean {
-  return status === "completed" || status === "archived";
 }
 
 function runMigrations(db: NodeSqlite.DatabaseSync, appliedAt: string): void {
@@ -291,18 +197,6 @@ function runMigrations(db: NodeSqlite.DatabaseSync, appliedAt: string): void {
       db.exec("ROLLBACK");
       throw error;
     }
-  }
-}
-
-function runInTransaction<A>(db: NodeSqlite.DatabaseSync, fn: () => A): A {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const result = fn();
-    db.exec("COMMIT");
-    return result;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
   }
 }
 
@@ -360,55 +254,8 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
     return row ? mapHomeRow(row) : null;
   };
 
-  const selectTask = (botId: string, taskId: string): BotTaskRecord | null => {
-    const row = db
-      .prepare(
-        `SELECT id, bot_id, child_thread_id, title, goal, status, latest_decision, latest_summary,
-                created_at, updated_at, completed_at
-           FROM bot_tasks
-          WHERE bot_id = ? AND id = ?`,
-      )
-      .get(botId, taskId) as unknown as RawTaskRow | undefined;
-    return row ? mapTaskRow(row) : null;
-  };
-
-  const selectTasksByStatuses = (
-    botId: string,
-    statuses: ReadonlyArray<BotTaskStatus>,
-  ): ReadonlyArray<BotTaskRecord> => {
-    const placeholders = statuses.map(() => "?").join(", ");
-    const rows = db
-      .prepare(
-        `SELECT id, bot_id, child_thread_id, title, goal, status, latest_decision, latest_summary,
-                created_at, updated_at, completed_at
-           FROM bot_tasks
-          WHERE bot_id = ? AND status IN (${placeholders})
-          ORDER BY updated_at DESC, rowid DESC`,
-      )
-      .all(botId, ...statuses) as unknown as ReadonlyArray<RawTaskRow>;
-    return rows.map(mapTaskRow);
-  };
-
   return {
     sqlitePath,
-
-    getTaskCountsByBot: () =>
-      tryOp("getTaskCountsByBot", () => {
-        const rows = db
-          .prepare("SELECT bot_id, status, COUNT(*) AS cnt FROM bot_tasks GROUP BY bot_id, status")
-          .all() as unknown as ReadonlyArray<RawCountRow>;
-        const counts = new Map<string, { active: number; completed: number }>();
-        for (const row of rows) {
-          const current = counts.get(row.bot_id) ?? { active: 0, completed: 0 };
-          if (row.status === "active" || row.status === "waiting_user") {
-            current.active += Number(row.cnt);
-          } else {
-            current.completed += Number(row.cnt);
-          }
-          counts.set(row.bot_id, current);
-        }
-        return counts;
-      }),
 
     getHome: (botId) => tryOp("getHome", () => selectHome(botId)),
 
@@ -432,15 +279,8 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
       }),
 
     upsertHome: Effect.fn("bot.db.upsertHome")(function* (botId, input) {
-      const normalizedBotId = botId.trim();
-      if (!normalizedBotId) {
-        return yield* new BotStoreValidationError({ detail: "botId is required." });
-      }
       const now = yield* currentIsoNow;
       return yield* tryOp("upsertHome", () => {
-        const existing = selectHome(normalizedBotId);
-        const projectId =
-          input.projectId !== undefined ? input.projectId : (existing?.projectId ?? null);
         db.prepare(
           `INSERT INTO bot_homes (bot_id, home_thread_id, project_id, updated_at)
            VALUES (?, ?, ?, ?)
@@ -448,224 +288,64 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
              home_thread_id = excluded.home_thread_id,
              project_id = excluded.project_id,
              updated_at = excluded.updated_at`,
-        ).run(normalizedBotId, input.homeThreadId, projectId, now);
+        ).run(botId, input.homeThreadId, input.projectId, now);
         return {
-          botId: normalizedBotId,
+          botId,
           homeThreadId: input.homeThreadId,
-          projectId,
+          projectId: input.projectId,
           updatedAt: now,
         } satisfies BotHomeRecord;
       });
     }),
 
-    listActiveTasksForHomeContext: (botId) =>
-      tryOp("listActiveTasksForHomeContext", () =>
-        selectTasksByStatuses(botId, ["active", "waiting_user"]),
-      ),
-
-    listBotTasks: (botId, options) =>
-      tryOp("listBotTasks", () => {
-        const recentCardsLimit = Math.max(1, Math.min(options?.recentCardsLimit ?? 30, 100));
-        const home = selectHome(botId);
-        const activeTasks = selectTasksByStatuses(botId, ["active", "waiting_user"]);
-        const completedTasks = selectTasksByStatuses(botId, ["completed", "archived"]);
-        const cardRows = db
-          .prepare(
-            `SELECT id, bot_id, task_id, kind, content, created_at
-               FROM bot_home_cards
-              WHERE bot_id = ?
-              ORDER BY created_at DESC, rowid DESC
-              LIMIT ?`,
-          )
-          .all(botId, recentCardsLimit) as unknown as ReadonlyArray<RawCardRow>;
-        return {
-          botId,
-          home,
-          activeTasks: [...activeTasks],
-          completedTasks: [...completedTasks],
-          recentCards: cardRows.map(mapCardRow).reverse(),
-        } satisfies BotTasksResponse;
-      }),
-
-    getTask: (botId, taskId) => tryOp("getTask", () => selectTask(botId, taskId)),
-
-    findTaskByChildThreadId: (childThreadId) =>
-      tryOp("findTaskByChildThreadId", () => {
-        const row = db
-          .prepare(
-            `SELECT id, bot_id, child_thread_id, title, goal, status, latest_decision, latest_summary,
-                    created_at, updated_at, completed_at
-               FROM bot_tasks
-              WHERE child_thread_id = ?
-              ORDER BY updated_at DESC, rowid DESC
-              LIMIT 1`,
-          )
-          .get(childThreadId) as unknown as RawTaskRow | undefined;
-        return row ? mapTaskRow(row) : null;
-      }),
-
-    createTask: Effect.fn("bot.db.createTask")(function* (botId, input) {
-      const normalizedBotId = botId.trim();
-      const title = input.title.trim();
-      const goal = (input.goal?.trim() || title).trim();
-      if (!normalizedBotId) {
-        return yield* new BotStoreValidationError({ detail: "botId is required." });
-      }
-      if (!title) {
-        return yield* new BotStoreValidationError({ detail: "Task title is required." });
-      }
-      const now = yield* currentIsoNow;
-      return yield* tryOp("createTask", () =>
-        runInTransaction(db, () => {
-          const taskId = NodeCrypto.randomUUID();
-          const childThreadId = input.childThreadId ?? null;
-          const summary = goal;
+    upsertSessionReceipt: Effect.fn("bot.db.upsertSessionReceipt")(
+      function* (botId, threadId, receipt) {
+        const now = yield* currentIsoNow;
+        yield* tryOp("upsertSessionReceipt", () => {
           db.prepare(
-            `INSERT INTO bot_tasks (
-               id, bot_id, child_thread_id, title, goal, status,
-               latest_decision, latest_summary, created_at, updated_at, completed_at
-             ) VALUES (?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, NULL)`,
-          ).run(taskId, normalizedBotId, childThreadId, title, goal, summary, now, now);
-
-          const cardId = NodeCrypto.randomUUID();
-          const cardContent = `已派发独立任务「${title}」`;
-          db.prepare(
-            `INSERT INTO bot_home_cards (id, bot_id, task_id, kind, content, created_at)
-             VALUES (?, ?, ?, 'task_dispatched', ?, ?)`,
-          ).run(cardId, normalizedBotId, taskId, cardContent, now);
-
-          const task: BotTaskRecord = {
-            id: taskId,
-            botId: normalizedBotId,
-            childThreadId,
-            title,
-            goal,
-            status: "active",
-            latestDecision: null,
-            latestSummary: summary,
-            createdAt: now,
-            updatedAt: now,
-            completedAt: null,
-          };
-          const card: BotHomeCardRecord = {
-            id: cardId,
-            botId: normalizedBotId,
-            taskId,
-            kind: "task_dispatched",
-            content: cardContent,
-            createdAt: now,
-          };
-          return { task, card };
-        }),
-      );
-    }),
-
-    updateTask: Effect.fn("bot.db.updateTask")(function* (botId, taskId, input) {
-      if (input.title !== undefined && !input.title.trim()) {
-        return yield* new BotStoreValidationError({ detail: "Task title cannot be empty." });
-      }
-      const existing = yield* tryOp("updateTask.find", () => selectTask(botId, taskId));
-      if (!existing) {
-        return yield* new BotTaskNotFoundError({ botId, taskId });
-      }
-      const now = yield* currentIsoNow;
-      return yield* tryOp("updateTask.write", () =>
-        runInTransaction(db, () => {
-          const nextTitle = input.title !== undefined ? input.title.trim() : existing.title;
-          const nextGoal = input.goal !== undefined ? input.goal.trim() : existing.goal;
-          const nextChildThreadId =
-            input.childThreadId !== undefined ? input.childThreadId : existing.childThreadId;
-          const nextStatus = input.status ?? existing.status;
-          const nextDecision =
-            input.latestDecision !== undefined
-              ? input.latestDecision?.trim() || null
-              : existing.latestDecision;
-          const nextSummary =
-            input.latestSummary !== undefined
-              ? input.latestSummary.trim()
-              : nextDecision !== null && nextDecision !== existing.latestDecision
-                ? nextDecision
-                : existing.latestSummary;
-          const nextCompletedAt = isTerminalStatus(nextStatus)
-            ? (existing.completedAt ?? now)
-            : null;
-
-          db.prepare(
-            `UPDATE bot_tasks
-                SET title = ?,
-                    goal = ?,
-                    child_thread_id = ?,
-                    status = ?,
-                    latest_decision = ?,
-                    latest_summary = ?,
-                    updated_at = ?,
-                    completed_at = ?
-              WHERE bot_id = ? AND id = ?`,
+            `INSERT INTO bot_session_receipts
+               (thread_id, bot_id, status, outcome, artifacts_json, received_at)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(thread_id) DO UPDATE SET
+               status = excluded.status,
+               outcome = excluded.outcome,
+               artifacts_json = excluded.artifacts_json,
+               received_at = excluded.received_at`,
           ).run(
-            nextTitle,
-            nextGoal,
-            nextChildThreadId,
-            nextStatus,
-            nextDecision,
-            nextSummary,
-            now,
-            nextCompletedAt,
+            threadId,
             botId,
-            taskId,
+            receipt.status,
+            receipt.outcome,
+            JSON.stringify(receipt.artifacts),
+            now,
           );
+        });
+      },
+    ),
 
-          const decisionChanged =
-            input.latestDecision !== undefined &&
-            nextDecision !== null &&
-            nextDecision !== existing.latestDecision;
-          const statusChanged = input.status !== undefined && nextStatus !== existing.status;
-
-          let card: BotHomeCardRecord | null = null;
-          if (input.emitHomeCard !== false && (decisionChanged || statusChanged)) {
-            const cardId = NodeCrypto.randomUUID();
-            const kind: BotHomeCardKind = decisionChanged ? "task_decision" : "task_status";
-            const content = decisionChanged
-              ? `「${nextTitle}」结论更新：${nextDecision}`
-              : `「${nextTitle}」状态变更：${nextStatus}`;
-            db.prepare(
-              `INSERT INTO bot_home_cards (id, bot_id, task_id, kind, content, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)`,
-            ).run(cardId, botId, taskId, kind, content, now);
-            card = {
-              id: cardId,
-              botId,
-              taskId,
-              kind,
-              content,
-              createdAt: now,
-            };
-          }
-
-          const task: BotTaskRecord = {
-            id: existing.id,
-            botId: existing.botId,
-            childThreadId: nextChildThreadId,
-            title: nextTitle,
-            goal: nextGoal,
-            status: nextStatus,
-            latestDecision: nextDecision,
-            latestSummary: nextSummary,
-            createdAt: existing.createdAt,
-            updatedAt: now,
-            completedAt: nextCompletedAt,
-          };
-
-          return { task, card };
-        }),
-      );
-    }),
-
-    deleteTask: (botId, taskId) =>
-      tryOp("deleteTask", () => {
-        const result = db
-          .prepare("DELETE FROM bot_tasks WHERE bot_id = ? AND id = ?")
-          .run(botId, taskId);
-        return Number(result.changes) > 0;
+    listSessionReceipts: (botId) =>
+      tryOp("listSessionReceipts", () => {
+        const rows = db
+          .prepare(
+            `SELECT thread_id, status, outcome, artifacts_json, received_at
+               FROM bot_session_receipts
+              WHERE bot_id = ?
+              ORDER BY received_at DESC`,
+          )
+          .all(botId) as unknown as ReadonlyArray<{
+          thread_id: string;
+          status: BotSessionReceipt["status"];
+          outcome: string;
+          artifacts_json: string;
+          received_at: string;
+        }>;
+        return rows.map((row) => ({
+          threadId: row.thread_id,
+          status: row.status,
+          outcome: row.outcome,
+          artifacts: decodeArtifacts(row.artifacts_json),
+          receivedAt: row.received_at,
+        }));
       }),
   };
 }

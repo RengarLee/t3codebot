@@ -34,6 +34,7 @@ const BOT_OWNED_PATTERNS: ReadonlyArray<RegExp> = [
 
 const BOT_OWNED_EXACT = new Set<string>([
   "apps/server/src/botHostAdapter.ts",
+  "apps/server/src/botHostAdapter.test.ts",
   "apps/web/src/components/bots/BotThreadDetails.tsx",
   "apps/web/src/components/settings/BotsSettingsPanel.tsx",
   "apps/web/src/components/sidebar/SidebarBotsBar.tsx",

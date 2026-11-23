@@ -29,7 +29,7 @@ function makeHost() {
     getThread: (threadId) =>
       Effect.sync(() => {
         const projectId = liveThreads.get(threadId);
-        return projectId === undefined ? null : { threadId, projectId };
+        return projectId === undefined ? null : { threadId, projectId, title: "Home" };
       }),
     launchThread: ({ projectId, title }) =>
       Effect.sync(() => {

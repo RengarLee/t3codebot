@@ -51,7 +51,9 @@ function mapRunStatus(
   }
 }
 
-function mapDomainEvent(event: OrchestrationV2DomainEvent): BotHostThreadLifecycleEvent | null {
+export function mapDomainEvent(
+  event: OrchestrationV2DomainEvent,
+): BotHostThreadLifecycleEvent | null {
   if (event.type === "run.updated") {
     const status = mapRunStatus(event.payload.status);
     if (status === null) return null;
@@ -67,7 +69,7 @@ function mapDomainEvent(event: OrchestrationV2DomainEvent): BotHostThreadLifecyc
       type: "run_output",
       threadId: event.threadId,
       runId: event.payload.runId,
-      output: event.payload.output,
+      output: event.payload.output.value,
     };
   }
   if (event.type === "runtime-request.updated" && event.payload.status === "pending") {
@@ -130,7 +132,11 @@ const layerBotServerHostLive = Layer.effect(
           .getThreadRecords(ThreadId.make(threadId), [])
           .pipe(Effect.option);
         if (records._tag === "None" || records.value.thread.deletedAt !== null) return null;
-        return { threadId, projectId: records.value.thread.projectId };
+        return {
+          threadId,
+          projectId: records.value.thread.projectId,
+          title: records.value.thread.title,
+        };
       }),
 
       launchThread: Effect.fn("botHostAdapter.launchThread")(function* (input) {
@@ -240,7 +246,7 @@ const layerBotServerHostLive = Layer.effect(
           threadId,
           latestRunStatus: latestRun?.status ?? null,
           latestAssistantText: latestAssistant?.text ?? null,
-          latestOutput: latestRun?.output ?? null,
+          latestOutput: latestRun?.output?.value ?? null,
         };
       }),
 

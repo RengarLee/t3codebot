@@ -3,7 +3,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } fr
 
 import {
   BOT_LIST_ROUTE,
-  BOT_TASKS_ROUTE_PREFIX,
+  BOT_HOME_ROUTE_PREFIX,
   BotEnsureHomeResponseSchema,
   BotListResponseSchema,
   type BotEnsureHomeResponse,
@@ -64,7 +64,7 @@ export function ensureBotHome(
   botId: string,
   options?: BotApiClientOptions,
 ): Promise<BotEnsureHomeResponse> {
-  const route = `${BOT_TASKS_ROUTE_PREFIX}/${encodeURIComponent(botId)}/home`;
+  const route = `${BOT_HOME_ROUTE_PREFIX}/${encodeURIComponent(botId)}`;
   return Effect.runPromise(
     HttpClient.execute(HttpClientRequest.post(buildBotUrl(route, options?.httpBaseUrl))).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),

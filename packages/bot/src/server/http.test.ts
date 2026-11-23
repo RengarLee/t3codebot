@@ -8,7 +8,12 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { BOT_HEALTH_ROUTE, BotHealthResponseSchema, MAIN_BOT_ID } from "../contracts.ts";
+import {
+  BOT_HEALTH_ROUTE,
+  BOT_SESSION_RECEIPT_JSON_SCHEMA,
+  BotHealthResponseSchema,
+  MAIN_BOT_ID,
+} from "../contracts.ts";
 import { createBotHealthPayload } from "./http.ts";
 import {
   createBotInStateDir,
@@ -144,8 +149,18 @@ describe("bot server module", () => {
       expect(main).toMatchObject({ id: MAIN_BOT_ID, role: "main" });
       expect(main.path).toBe(path.join(stateDir, "bots", MAIN_BOT_ID));
 
+      const instructionsPath = path.join(main.path, "workspace", "AGENTS.md");
+      expect(yield* fs.readFileString(instructionsPath)).toContain(
+        JSON.stringify(BOT_SESSION_RECEIPT_JSON_SCHEMA),
+      );
+      expect(yield* fs.readFileString(path.join(main.path, "workspace", "CLAUDE.md"))).toBe(
+        "@AGENTS.md\n",
+      );
+      yield* fs.writeFileString(instructionsPath, "edited by the user");
+
       const again = yield* ensureMainBotInStateDir(stateDir);
       expect(again.path).toBe(main.path);
+      expect(yield* fs.readFileString(instructionsPath)).toBe("edited by the user");
 
       const listed = yield* listStateDirBots(stateDir);
       expect(listed.bots.map((bot) => [bot.id, bot.role])).toEqual(
