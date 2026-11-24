@@ -18,14 +18,8 @@ describe("bot web preferences store", () => {
       notifications += 1;
     });
     try {
-      const updated = updateBotClientPreferences({
-        botsBarEnabled: false,
-        sidebarBotsPanelOpen: true,
-      });
-      expect(updated).toEqual({
-        botsBarEnabled: false,
-        sidebarBotsPanelOpen: true,
-      });
+      const updated = updateBotClientPreferences({ botsBarEnabled: false });
+      expect(updated).toEqual({ botsBarEnabled: false });
       expect(getBotClientPreferences()).toEqual(updated);
       expect(notifications).toBe(1);
 

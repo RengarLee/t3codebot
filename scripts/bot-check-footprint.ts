@@ -23,7 +23,12 @@ export interface FootprintReport {
   readonly violations: ReadonlyArray<FootprintViolation>;
 }
 
-const BOT_OWNED_PREFIXES = ["packages/bot/", "docs/bot/", ".agents/skills/verify-t3code/"] as const;
+const BOT_OWNED_PREFIXES = [
+  "packages/bot/",
+  "docs/bot/",
+  ".agents/skills/verify-t3code/",
+  "apps/web/src/components/bots/",
+] as const;
 
 const BOT_OWNED_PATTERNS: ReadonlyArray<RegExp> = [
   /^\.github\/workflows\/bot-[^/]+\.yml$/,
@@ -34,7 +39,8 @@ const BOT_OWNED_PATTERNS: ReadonlyArray<RegExp> = [
 
 const BOT_OWNED_EXACT = new Set<string>([
   "apps/server/src/botHostAdapter.ts",
-  "apps/web/src/components/bots/createBotPaletteFlow.tsx",
+  "apps/server/src/botHostAdapter.test.ts",
+  "apps/web/src/components/bots/BotThreadDetails.tsx",
   "apps/web/src/components/settings/BotsSettingsPanel.tsx",
   "apps/web/src/components/sidebar/SidebarBotsBar.tsx",
   "apps/web/src/routes/_chat.settings.bots.tsx",
@@ -70,8 +76,10 @@ export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | nul
   "apps/mobile/src/features/settings/environment-maintenance.test.ts": 10,
   "apps/server/src/cli/update.test.ts": 4,
   "apps/web/package.json": 6,
-  "apps/web/src/components/CommandPalette.tsx": 18,
+  "apps/web/src/components/chat/MessagesTimeline.logic.ts": 10,
+  "apps/web/src/components/chat/ThreadDetailsPanel.tsx": 6,
   "apps/web/src/components/Sidebar.tsx": 10,
+  "apps/web/src/components/ThreadContextChip.tsx": 12,
   "apps/web/src/components/settings/SettingsSidebarNav.tsx": 10,
   "apps/web/src/components/settings/settingsSearch.ts": 16,
   "packages/shared/src/cliRelease.ts": 4,

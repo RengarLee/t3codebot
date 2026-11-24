@@ -8,9 +8,19 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { BOT_HEALTH_ROUTE, BotHealthResponseSchema } from "../contracts.ts";
+import {
+  BOT_HEALTH_ROUTE,
+  BOT_SESSION_RECEIPT_JSON_SCHEMA,
+  BotHealthResponseSchema,
+  MAIN_BOT_ID,
+} from "../contracts.ts";
 import { createBotHealthPayload } from "./http.ts";
-import { createBotInStateDir, listStateDirBots, parseBotYaml } from "./registry.ts";
+import {
+  createBotInStateDir,
+  ensureMainBotInStateDir,
+  listStateDirBots,
+  parseBotYaml,
+} from "./registry.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
 const decodeHealthResponse = Schema.decodeSync(BotHealthResponseSchema);
@@ -36,6 +46,8 @@ describe("bot server module", () => {
         'version: "0.2.0"',
         'status: "active" # draft | active',
         'summary: "日程统筹与待办跟踪"',
+        'in_scope: ["日程", "待办"]',
+        "out_of_scope: not-a-list",
         "runtime:",
         '  session_mode: "fresh_per_run"',
       ].join("\n"),
@@ -46,6 +58,7 @@ describe("bot server module", () => {
       version: "0.2.0",
       status: "active",
       summary: "日程统筹与待办跟踪",
+      inScope: ["日程", "待办"],
       sessionMode: "fresh_per_run",
     });
   });
@@ -118,6 +131,9 @@ describe("bot server module", () => {
       expect(created.name).toBe("代码评审助手");
       expect(created.summary).toBe("盯 PR 和测试回归");
       expect(created.status).toBe("active");
+      for (const file of ["SOUL.md", "POLICY.md", "LESSONS.md", "memory/long-term.md"]) {
+        expect(yield* fs.exists(`${created.path}/${file}`)).toBe(true);
+      }
 
       const duplicate = yield* Effect.exit(createBotInStateDir(stateDir, { name: "代码评审助手" }));
       expect(Exit.isFailure(duplicate)).toBe(true);
@@ -125,6 +141,50 @@ describe("bot server module", () => {
       const listed = yield* listStateDirBots(stateDir);
       expect(listed.bots).toHaveLength(1);
       expect(listed.bots[0]?.id).toBe(created.id);
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
+  it.effect("keeps exactly one main bot and lists every other bot as a sub-bot", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fs.makeTempDirectoryScoped();
+      const sub = yield* createBotInStateDir(stateDir, {
+        name: "Bot",
+        summary: "Researches upstream T3 changes.",
+        inScope: ["external research"],
+      });
+
+      const main = yield* ensureMainBotInStateDir(stateDir);
+      expect(main).toMatchObject({ id: MAIN_BOT_ID, role: "main" });
+      expect(main.path).toBe(path.join(stateDir, "bots", MAIN_BOT_ID));
+
+      const instructionsPath = path.join(main.path, "workspace", "AGENTS.md");
+      expect(yield* fs.readFileString(instructionsPath)).toContain(
+        JSON.stringify(BOT_SESSION_RECEIPT_JSON_SCHEMA),
+      );
+      expect(yield* fs.readFileString(path.join(main.path, "workspace", "CLAUDE.md"))).toBe(
+        "@AGENTS.md\n",
+      );
+      expect(yield* fs.readFileString(instructionsPath)).toContain("No sub-bots yet.");
+
+      // Bot routes only to active sub-bots that already have their own project.
+      const again = yield* ensureMainBotInStateDir(
+        stateDir,
+        new Map([[sub.id, { projectId: "sub-project", homeThreadId: null }]]),
+      );
+      expect(again.path).toBe(main.path);
+      expect(yield* fs.readFileString(instructionsPath)).toContain(
+        "| Bot: Researches upstream T3 changes. | sub-project | external research |  |",
+      );
+
+      const listed = yield* listStateDirBots(stateDir);
+      expect(listed.bots.map((bot) => [bot.id, bot.role])).toEqual(
+        [
+          [MAIN_BOT_ID, "main"],
+          [sub.id, "sub"],
+        ].sort(([a], [b]) => String(a).localeCompare(String(b))),
+      );
     }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 });

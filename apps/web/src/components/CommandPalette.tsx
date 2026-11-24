@@ -253,7 +253,6 @@ import {
   remoteProjectSourceIcon,
   sourceControlHostIcon,
 } from "./CommandPaletteAddProject";
-import { useCreateBotPaletteFlow } from "./bots/createBotPaletteFlow";
 import { useCommandPaletteThreadItems } from "./CommandPaletteThreadItems";
 import { useCommandPaletteThemeItems } from "./CommandPaletteThemeItems";
 import {
@@ -986,13 +985,11 @@ function OpenCommandPaletteDialog(props: {
     highlightClearedRef.current = true;
     setHighlightedItemValue(null);
   });
-  const botFlow = useCreateBotPaletteFlow({ query, pushView: pushPaletteView, setOpen });
 
   function popView(): void {
     browseNavigation.invalidate();
     setAddProjectCloneFlow(null);
     setNewProjectFlow(null);
-    botFlow.back();
     if (viewStack.length <= 1) {
       setAddProjectEnvironmentId(null);
     } else if (newProjectFlow?.sourcesEnvironmentId) {
@@ -1196,7 +1193,6 @@ function OpenCommandPaletteDialog(props: {
       });
     }
 
-    sourceItems.push(botFlow.item(environmentId));
     return [{ value: `sources:${environmentId}`, label: gt("Sources"), items: sourceItems }];
   };
 
@@ -2580,7 +2576,6 @@ function OpenCommandPaletteDialog(props: {
   } else if (isBrowsing) {
     displayedGroups = relativePathNeedsActiveProject ? [] : browseGroups;
   }
-  if (botFlow.active) displayedGroups = [];
   const resultRows = buildCommandPaletteRows(displayedGroups);
   const autoHighlightsFirstRow =
     !isBrowsing && !isRemoteProjectCloneFlow && newProjectFlow === null;
@@ -2740,7 +2735,6 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
-    if (botFlow.handleKeyDown(event)) return;
     if (addProjectCloneFlow?.step === "repository" && event.key === "Enter") {
       event.preventDefault();
       void submitAddProjectCloneFlow();
@@ -3083,13 +3077,13 @@ function OpenCommandPaletteDialog(props: {
       key={`${viewStack.length}-${browseGeneration}-${isBrowsing}-${newProjectFlow ? "new-project" : (addProjectCloneFlow?.step ?? "none")}`}
       aria-label={gt("Command palette")}
       autoHighlight={autoHighlightsFirstRow ? "always" : false}
-      footerActionLabel={botFlow.active ? botFlow.submitLabel : footerActionLabel}
+      footerActionLabel={footerActionLabel}
       footerTrailing={footerTrailing}
-      inputAccessory={botFlow.accessory(submitButtonId) ?? inputAccessory}
+      inputAccessory={inputAccessory}
       inputProps={{
         className: hasHighlightedNewProjectItem
           ? "*:data-[slot=autocomplete-input]:pe-38!"
-          : addProjectCloneFlow?.step === "repository" || newProjectFlow !== null || botFlow.active
+          : addProjectCloneFlow?.step === "repository" || newProjectFlow !== null
             ? "*:data-[slot=autocomplete-input]:pe-32!"
             : isBrowsing
               ? browseInputEndPaddingClass({
@@ -3097,8 +3091,8 @@ function OpenCommandPaletteDialog(props: {
                   hasHighlightedBrowseItem,
                 })
               : undefined,
-        placeholder: botFlow.active ? botFlow.placeholder : inputPlaceholder,
-        "aria-describedby": inputAccessory || botFlow.active ? submitButtonId : undefined,
+        placeholder: inputPlaceholder,
+        "aria-describedby": inputAccessory ? submitButtonId : undefined,
         ...(isSubmenu
           ? {
               startAddon: (
@@ -3146,7 +3140,6 @@ function OpenCommandPaletteDialog(props: {
           environmentLabel={newProjectEnvironmentLabel}
         />
       ) : null}
-      {botFlow.summary}
       {addProjectCloneFlow?.step === "confirm" ? (
         <RemoteRepositorySummary
           source={addProjectCloneFlow.source}
@@ -3194,7 +3187,6 @@ function OpenCommandPaletteDialog(props: {
                   : isThreadSearchFailed
                     ? { emptyStateMessage: gt("Couldn't search thread messages.") }
                     : {})}
-        {...(botFlow.active ? { emptyStateMessage: botFlow.emptyHint } : {})}
       />
     </CommandPaletteContent>
   );

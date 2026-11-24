@@ -2,12 +2,11 @@ import * as Effect from "effect/Effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import {
-  BOT_CREATE_ROUTE,
   BOT_LIST_ROUTE,
-  BotCreateResponseSchema,
+  BOT_HOME_ROUTE_PREFIX,
+  BotEnsureHomeResponseSchema,
   BotListResponseSchema,
-  type BotCreateInput,
-  type BotCreateResponse,
+  type BotEnsureHomeResponse,
   type BotListResponse,
 } from "../contracts.ts";
 
@@ -60,21 +59,17 @@ export function fetchBotList(options?: BotApiClientOptions): Promise<BotListResp
   );
 }
 
-export async function createBot(
-  input: BotCreateInput,
+/** Binds the bot's Home thread, launching one in the bot's project when none is live. */
+export function ensureBotHome(
+  botId: string,
   options?: BotApiClientOptions,
-): Promise<BotCreateResponse> {
-  const request = HttpClientRequest.post(buildBotUrl(BOT_CREATE_ROUTE, options?.httpBaseUrl)).pipe(
-    HttpClientRequest.bodyJsonUnsafe(input),
-  );
-
-  const decoded = await Effect.runPromise(
-    HttpClient.execute(request).pipe(
+): Promise<BotEnsureHomeResponse> {
+  const route = `${BOT_HOME_ROUTE_PREFIX}/${encodeURIComponent(botId)}`;
+  return Effect.runPromise(
+    HttpClient.execute(HttpClientRequest.post(buildBotUrl(route, options?.httpBaseUrl))).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap(HttpClientResponse.schemaBodyJson(BotCreateResponseSchema)),
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(BotEnsureHomeResponseSchema)),
       Effect.provide(FetchHttpClient.layer),
     ),
   );
-  notifyBotsServerStateChanged();
-  return decoded;
 }
