@@ -6,12 +6,13 @@ import {
 } from "@t3tools/client-runtime/side-thread";
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import * as Option from "effect/Option";
 import type { MouseEvent } from "react";
 
 import { useSideThreadTrigger } from "../../hooks/useSideThreadTrigger";
 import { openSideThread } from "../../lib/sideChatPane";
 import { isMacPlatform } from "../../lib/utils";
-import { useEnvironmentHttpBaseUrl } from "../../state/environments";
+import { usePreparedConnection } from "../../state/session";
 import { resolveThreadRouteTarget } from "../../threadRoutes";
 
 const BOT_SESSION_CHIP_CLASS_NAME =
@@ -38,7 +39,8 @@ export function useBotSessionChip(input: {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId | null | undefined;
 }) {
-  const bots = useBotList(useEnvironmentHttpBaseUrl(input.environmentId));
+  const prepared = usePreparedConnection(input.environmentId);
+  const bots = useBotList(Option.isSome(prepared) ? prepared.value.httpBaseUrl : null);
   const navigate = useNavigate();
   const trigger = useSideThreadTrigger();
   const routeTarget = resolveThreadRouteTarget(useParams({ strict: false }));

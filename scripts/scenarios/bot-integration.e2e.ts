@@ -39,7 +39,8 @@ test(
     await expect(browser.locator('[data-testid="sidebar-bots-bar"] button')).toHaveCount(1);
 
     // 3. The add-project palette no longer offers "Create bot".
-    await screen.getByRole("button", "Add project").tap();
+    await screen.getByRole("combobox", "Projects").tap();
+    await screen.getByRole("option", "Add project").tap();
     await expect(screen.getByText("Git URL")).toBeVisible();
     await expect(screen.getByText("Create bot")).toBeHidden();
     await browser.keyboard.press("Escape");
