@@ -4,119 +4,122 @@ import { createBotTranslator } from "./i18n.ts";
 
 const INITIAL_COUNT = 10;
 const PAGE_COUNT = 25;
-// Shows 5 session rows (5 * 36px + 4 * 2px = 188px) by default inside each dropdown popup.
-const DROPDOWN_LIST_MAX_HEIGHT = "11.75rem";
+// Top active list shows ~8 session rows (8 * 36px + 7 * 2px = 302px) before scrolling.
+const ACTIVE_LIST_MAX_HEIGHT = "19rem";
+// Collapsible Working / Settled lists show ~5 rows (5 * 36px + 4 * 2px = 188px) before scrolling.
+const SECTION_LIST_MAX_HEIGHT = "11.75rem";
 
 export interface BotOverviewDropdownRow {
-  readonly kind: "active" | "settled";
+  readonly kind: "working" | "settled";
   readonly label: string;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
-  /** Shown first on the Active row when > 0 (approval / input / guest request). */
-  readonly attentionCount: number;
-  readonly attentionLabel: string;
-  /** Shown on the Active row before Done when > 0 (preparing / working / waiting). */
+  /** Shown on the Working row when > 0 (preparing / working / waiting). */
   readonly runningCount: number;
   readonly runningLabel: string;
-  /** Shown on the Active row after Running when > 0 (unseen completion). */
-  readonly doneCount: number;
-  readonly doneLabel: string;
-  /** Shown on the Settled row; omitted on Active. */
-  readonly totalCount: number | null;
   readonly content: ReactNode;
 }
 
 export interface BotOverviewPanelProps {
   readonly locale: string | undefined;
-  /** Unsettled sessions, in the host's sidebar order. Home is left out. */
+  /** Unsettled, non-running sessions in sidebar order. Home is left out. */
   readonly activeSessionIds: ReadonlyArray<string>;
+  /** Currently executing sessions (preparing / working / waiting). */
+  readonly workingSessionIds: ReadonlyArray<string>;
   readonly settledSessionIds: ReadonlyArray<string>;
-  readonly attentionCount: number;
-  readonly doneCount: number;
   readonly runningCount: number;
   /** Host thread row for one session, as an `<li>`. */
   readonly renderSession: (threadId: string, onSelect: () => void) => ReactNode;
-  /** Host trigger + floating dropdown popup, matching ThreadDetailsPanel pickers. */
+  /** Host trigger + collapsible section matching ThreadDetailsPanel pickers. */
   readonly renderDropdownRow: (row: BotOverviewDropdownRow) => ReactNode;
 }
 
 export function BotOverviewPanel({
   locale,
   activeSessionIds,
+  workingSessionIds,
   settledSessionIds,
-  attentionCount,
-  doneCount,
   runningCount,
   renderSession,
   renderDropdownRow,
 }: BotOverviewPanelProps) {
   const t = createBotTranslator(locale);
-  const [openSection, setOpenSection] = useState<"active" | "settled" | null>(null);
-  const close = () => setOpenSection(null);
+  const [workingOpen, setWorkingOpen] = useState(true);
+  const [settledOpen, setSettledOpen] = useState(false);
+  const noop = () => {};
   const empty = (
     <p className="px-2.5 py-2 text-muted-foreground text-xs">{t("bots.overview.noSessions")}</p>
   );
+  const showTopEmpty = activeSessionIds.length === 0 && workingSessionIds.length === 0;
+  const hasTopBlock = activeSessionIds.length > 0 || showTopEmpty;
 
   return (
     <div className="flex flex-col p-2" data-testid="bot-overview">
-      {renderDropdownRow({
-        kind: "active",
-        label: t("bots.overview.active"),
-        open: openSection === "active",
-        onOpenChange: (open) =>
-          setOpenSection(open ? "active" : openSection === "active" ? null : openSection),
-        attentionCount,
-        attentionLabel: t("bots.overview.needsAttention"),
-        doneCount,
-        doneLabel: t("bots.overview.done"),
-        runningCount,
-        runningLabel: t("bots.overview.running"),
-        totalCount: null,
-        content:
-          activeSessionIds.length === 0 ? (
-            empty
-          ) : (
-            <ProgressiveSessionList
-              ids={activeSessionIds}
-              renderSession={(id) => renderSession(id, close)}
-              testId="bot-overview-sessions"
-            />
-          ),
-      })}
-      {renderDropdownRow({
-        kind: "settled",
-        label: t("bots.overview.settled"),
-        open: openSection === "settled",
-        onOpenChange: (open) =>
-          setOpenSection(open ? "settled" : openSection === "settled" ? null : openSection),
-        attentionCount: 0,
-        attentionLabel: t("bots.overview.needsAttention"),
-        doneCount: 0,
-        doneLabel: t("bots.overview.done"),
-        runningCount: 0,
-        runningLabel: t("bots.overview.running"),
-        totalCount: settledSessionIds.length,
-        content:
-          settledSessionIds.length === 0 ? (
-            empty
-          ) : (
-            <ProgressiveSessionList
-              ids={settledSessionIds}
-              renderSession={(id) => renderSession(id, close)}
-              testId="bot-overview-settled-sessions"
-            />
-          ),
-      })}
+      {activeSessionIds.length > 0 ? (
+        <ProgressiveSessionList
+          ids={activeSessionIds}
+          maxHeight={ACTIVE_LIST_MAX_HEIGHT}
+          renderSession={(id) => renderSession(id, noop)}
+          testId="bot-overview-sessions"
+        />
+      ) : showTopEmpty ? (
+        empty
+      ) : null}
+      <div
+        className={
+          hasTopBlock ? "mt-1.5 flex flex-col border-t border-border/50 pt-1.5" : "flex flex-col"
+        }
+      >
+        {workingSessionIds.length > 0
+          ? renderDropdownRow({
+              kind: "working",
+              label: t("bots.overview.working"),
+              open: workingOpen,
+              onOpenChange: setWorkingOpen,
+              runningCount,
+              runningLabel: t("bots.overview.running"),
+              content: (
+                <ProgressiveSessionList
+                  ids={workingSessionIds}
+                  maxHeight={SECTION_LIST_MAX_HEIGHT}
+                  renderSession={(id) => renderSession(id, noop)}
+                  testId="bot-overview-working-sessions"
+                />
+              ),
+            })
+          : null}
+        {renderDropdownRow({
+          kind: "settled",
+          label: t("bots.overview.settled"),
+          open: settledOpen,
+          onOpenChange: setSettledOpen,
+          runningCount: 0,
+          runningLabel: t("bots.overview.running"),
+          content:
+            settledSessionIds.length === 0 ? (
+              empty
+            ) : (
+              <ProgressiveSessionList
+                ids={settledSessionIds}
+                maxHeight={SECTION_LIST_MAX_HEIGHT}
+                renderSession={(id) => renderSession(id, noop)}
+                testId="bot-overview-settled-sessions"
+              />
+            ),
+        })}
+      </div>
     </div>
   );
 }
 
 function ProgressiveSessionList({
   ids,
+  maxHeight,
   renderSession,
   testId,
 }: {
   readonly ids: ReadonlyArray<string>;
+  readonly maxHeight: string;
   readonly renderSession: (threadId: string) => ReactNode;
   readonly testId: string;
 }) {
@@ -148,7 +151,7 @@ function ProgressiveSessionList({
     <ul
       ref={listRef}
       className="flex flex-col gap-0.5 overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      style={{ maxHeight: DROPDOWN_LIST_MAX_HEIGHT, overflowY: "auto", scrollbarWidth: "none" }}
+      style={{ maxHeight, overflowY: "auto", scrollbarWidth: "none" }}
       data-testid={testId}
     >
       {ids.slice(0, shownCount).map(renderSession)}

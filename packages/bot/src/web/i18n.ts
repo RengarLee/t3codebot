@@ -124,6 +124,10 @@ export const BOT_MESSAGES = {
     en: "Active",
     zh: "活动中",
   },
+  "bots.overview.working": {
+    en: "Working",
+    zh: "执行中",
+  },
   "bots.overview.needsAttention": {
     en: "Needs attention",
     zh: "待处理",

@@ -27,6 +27,18 @@ export const DEFAULT_BOT_CLIENT_PREFERENCES: BotClientPreferences = {
 /** The one bot the user talks to; every other bot is a background sub-bot. */
 export const MAIN_BOT_ID = "main";
 
+/** Marker on T3 `notification` wakes sent by the bot server so Home hides the wake row. */
+export const BOT_WAKE_NOTIFICATION_DETAIL = "bot:wake" as const;
+
+export function isHiddenBotWakeNotification(
+  item:
+    | { readonly type?: string | undefined; readonly detail?: string | undefined }
+    | null
+    | undefined,
+): boolean {
+  return item?.type === "notification" && item.detail === BOT_WAKE_NOTIFICATION_DETAIL;
+}
+
 export const BotRoleSchema = Schema.Literals(["main", "sub"]);
 export type BotRole = typeof BotRoleSchema.Type;
 
@@ -84,7 +96,11 @@ export const BOT_SESSION_RECEIPT_JSON_SCHEMA = {
   required: ["status", "outcome", "artifacts"],
   properties: {
     status: { type: "string", enum: ["done", "blocked", "needs_decision"] },
-    outcome: { type: "string", description: "One sentence: what happened or what is needed." },
+    outcome: {
+      type: "string",
+      description:
+        "Concise 1-2 sentence takeaway (under 200 chars): what happened or what is needed. Keep full details in the session thread or files.",
+    },
     artifacts: {
       type: "array",
       items: { type: "string" },

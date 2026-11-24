@@ -109,9 +109,17 @@ export const botHttpRoutesLayer = Layer.unwrap(
       BOT_LIST_ROUTE,
       Effect.gen(function* () {
         yield* ensureMainBot;
-        const homes = yield* store
+        let homes = yield* store
           .getHomesByBot()
           .pipe(Effect.orElseSucceed(() => new Map<string, BotHome>()));
+        if (homeDeps !== null && homes.get(MAIN_BOT_ID)?.projectId == null) {
+          yield* homeLock
+            .withPermits(1)(ensureBotHome(homeDeps, MAIN_BOT_ID))
+            .pipe(Effect.catchCause(() => Effect.void));
+          homes = yield* store
+            .getHomesByBot()
+            .pipe(Effect.orElseSucceed(() => new Map<string, BotHome>()));
+        }
         const result = yield* listStateDirBots(stateDir, homes);
         return jsonOk(result);
       }),

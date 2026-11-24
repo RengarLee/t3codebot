@@ -5,10 +5,12 @@ import { MessagesSquareIcon } from "lucide-react";
 import { useGT } from "gt-react";
 
 import { resolveThreadOpenRoute } from "~/lib/sideChatPane";
+import { cn } from "~/lib/utils";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { useProject, useThreadShell } from "~/state/entities";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useEnvironmentQuery } from "~/state/query";
+import { useBotSessionChip } from "./bots/useBotSessionChip";
 import { ContextChip, ContextChipLabel } from "./ContextChip";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ThreadChipHoverCard } from "./ThreadChipHoverCard";
@@ -37,6 +39,7 @@ export function ThreadContextChip(props: {
   const project = useProject(projectId ? scopeProjectRef(environmentId, projectId) : null);
   const title = shell?.title?.trim() || metadata?.title.trim() || props.record.title;
   const navigate = useNavigate();
+  const botSession = useBotSessionChip({ environmentId, threadId, projectId });
   return (
     <Tooltip>
       <TooltipTrigger
@@ -48,7 +51,9 @@ export function ThreadContextChip(props: {
               <Link
                 to="/$environmentId/$threadId"
                 params={{ environmentId, threadId }}
+                {...botSession?.auxLinkProps}
                 onClick={(event) => {
+                  if (botSession?.onClick(event)) return;
                   if (shell?.lineage.sideChat !== true || event.button !== 0) return;
                   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                   // A side chat opens as a tab beside its parent, not as its own page.
@@ -65,9 +70,9 @@ export function ThreadContextChip(props: {
             }
             aria-label={gt("Thread, {title}", { title })}
             data-markdown-copy={props.copyMarkdown}
-            className="no-underline"
+            className={cn("no-underline", botSession?.className)}
           >
-            {project ? (
+            {botSession ? null : project ? (
               <ProjectFavicon project={project} className="size-[1em] self-center" />
             ) : (
               <MessagesSquareIcon />

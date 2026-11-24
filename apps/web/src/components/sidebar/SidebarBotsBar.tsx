@@ -1,8 +1,12 @@
-import { useBotProjectIds, useReloadBotListOnNewProjects } from "@t3tools/bot/web/botList";
+import {
+  useBotList,
+  useBotProjectIds,
+  useReloadBotListOnNewProjects,
+} from "@t3tools/bot/web/botList";
 import { createBotTranslator } from "@t3tools/bot/web/i18n";
 import { useBotClientPreferences } from "@t3tools/bot/web/preferences";
 import { SidebarMainBotEntry } from "@t3tools/bot/web/SidebarMainBotEntry";
-import type { BotSummary } from "@t3tools/bot/contracts";
+import { MAIN_BOT_ID, type BotSummary } from "@t3tools/bot/contracts";
 import { ProjectId, ThreadId, type EnvironmentId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useSyncExternalStore } from "react";
@@ -45,6 +49,9 @@ export function SidebarBotsBar() {
   const navigate = useNavigate();
   const target = resolveThreadRouteTarget(useParams({ strict: false }));
   const routeThread = useThreadShell(target?.kind === "server" ? target.threadRef : null);
+  const bots = useBotList(httpBaseUrl);
+  const mainBot = bots.find((candidate) => candidate.id === MAIN_BOT_ID);
+  const botProjectIds = useBotProjectIds(httpBaseUrl);
   if (!enabled) return null;
   const openThread = (threadId: string) => {
     if (environmentId === null) return;
@@ -61,8 +68,10 @@ export function SidebarBotsBar() {
           locale={locale}
           httpBaseUrl={httpBaseUrl}
           activeProjectId={
-            routeThread !== null && routeThread.environmentId === environmentId
-              ? routeThread.projectId
+            routeThread !== null &&
+            routeThread.environmentId === environmentId &&
+            botProjectIds.has(routeThread.projectId)
+              ? (mainBot?.projectId ?? routeThread.projectId)
               : null
           }
           onOpenThread={openThread}
@@ -81,11 +90,11 @@ export function SidebarBotsBar() {
             </Tooltip>
           )}
           renderBotTrailing={(bot) =>
-            environmentId === null || bot.projectId === null ? null : (
+            environmentId === null ? null : (
               <BotSidebarStatusPills
                 bot={bot}
+                bots={bots}
                 environmentId={environmentId}
-                projectId={ProjectId.make(bot.projectId)}
                 locale={locale}
               />
             )
@@ -98,18 +107,23 @@ export function SidebarBotsBar() {
 
 function BotSidebarStatusPills({
   bot,
+  bots,
   environmentId,
-  projectId,
   locale,
 }: {
   readonly bot: BotSummary;
+  readonly bots: ReadonlyArray<BotSummary>;
   readonly environmentId: EnvironmentId;
-  readonly projectId: ProjectId;
   readonly locale: string | undefined;
 }) {
   const t = createBotTranslator(locale);
   const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
-  const activeSessions = useThreadShellsForProjectRefs([{ environmentId, projectId }]).filter(
+  const projectRefs = bots.flatMap((candidate) =>
+    candidate.projectId === null
+      ? []
+      : [{ environmentId, projectId: ProjectId.make(candidate.projectId) }],
+  );
+  const activeSessions = useThreadShellsForProjectRefs(projectRefs).filter(
     (thread) =>
       thread.archivedAt === null &&
       thread.id !== bot.homeThreadId &&

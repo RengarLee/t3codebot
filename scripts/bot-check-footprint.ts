@@ -23,7 +23,12 @@ export interface FootprintReport {
   readonly violations: ReadonlyArray<FootprintViolation>;
 }
 
-const BOT_OWNED_PREFIXES = ["packages/bot/", "docs/bot/", ".agents/skills/verify-t3code/"] as const;
+const BOT_OWNED_PREFIXES = [
+  "packages/bot/",
+  "docs/bot/",
+  ".agents/skills/verify-t3code/",
+  "apps/web/src/components/bots/",
+] as const;
 
 const BOT_OWNED_PATTERNS: ReadonlyArray<RegExp> = [
   /^\.github\/workflows\/bot-[^/]+\.yml$/,
@@ -69,8 +74,10 @@ export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | nul
   "apps/server/package.json": 6,
   "apps/server/src/server.ts": 10,
   "apps/web/package.json": 6,
+  "apps/web/src/components/chat/MessagesTimeline.logic.ts": 10,
   "apps/web/src/components/chat/ThreadDetailsPanel.tsx": 6,
   "apps/web/src/components/Sidebar.tsx": 10,
+  "apps/web/src/components/ThreadContextChip.tsx": 12,
   "apps/web/src/components/settings/SettingsSidebarNav.tsx": 10,
   "apps/web/src/components/settings/settingsSearch.ts": 16,
   "packages/shared/src/cliRelease.ts": 4,
