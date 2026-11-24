@@ -25,10 +25,8 @@ Four dedicated bot-owned workflows (none touch upstream `.github/workflows/relea
    - If manual merge conflicts occur, it records the details in the job summary (and opens a tracking issue when Issues are enabled); if verification/E2E fails, it opens a Draft PR and leaves `main` untouched.
 
 2. `.github/workflows/bot-release.yml` + `.github/workflows/bot-release-win.yml`
-   - **Windows-only**: builds and verifies Windows x64 and Windows arm64 desktop installers (NSIS `.exe` + `.blockmap`) and Windows CLI archives (`t3-*.zip` + `SHA256SUMS`), without macOS or Linux release jobs.
-   - Desktop auto-updates target this fork repository via `GITHUB_REPOSITORY` (`T3CODE_DESKTOP_UPDATE_REPOSITORY`), merge Windows x64/arm64 updater manifests into `nightly.yml` (or `latest.yml` for manual stable runs) via `scripts/merge-update-manifests.ts --platform win`, and maintain the `update-feed/nightly.json` pointer release so nightly desktop installs discover updates automatically.
-   - CLI downloads point to `RengarLee/t3codebot` via `packages/shared/src/cliRelease.ts`.
-   - Manual `channel: stable` dispatches remain supported if you ever want to cut a stable release (`v<major>.<minor>.<upstreamPatch * 100 + seq>` + `latest.yml`).
+   - **Windows x64 only**: builds and verifies the Windows x64 desktop installer (NSIS `.exe` + `.blockmap`) and Windows x64 CLI archive (`t3-*.zip`), uploading them as GitHub Actions run artifacts without macOS, Linux, Windows arm64, or GitHub Release / auto-update feed publishing.
+   - Manual `channel: stable` dispatches remain supported if you ever want to build a stable-versioned artifact (`v<major>.<minor>.<upstreamPatch * 100 + seq>`).
 
 ## 3. Versioning & Release Workflow
 
