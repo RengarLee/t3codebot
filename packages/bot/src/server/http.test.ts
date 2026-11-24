@@ -46,6 +46,8 @@ describe("bot server module", () => {
         'version: "0.2.0"',
         'status: "active" # draft | active',
         'summary: "日程统筹与待办跟踪"',
+        'in_scope: ["日程", "待办"]',
+        "out_of_scope: not-a-list",
         "runtime:",
         '  session_mode: "fresh_per_run"',
       ].join("\n"),
@@ -56,6 +58,7 @@ describe("bot server module", () => {
       version: "0.2.0",
       status: "active",
       summary: "日程统筹与待办跟踪",
+      inScope: ["日程", "待办"],
       sessionMode: "fresh_per_run",
     });
   });
@@ -128,6 +131,9 @@ describe("bot server module", () => {
       expect(created.name).toBe("代码评审助手");
       expect(created.summary).toBe("盯 PR 和测试回归");
       expect(created.status).toBe("active");
+      for (const file of ["SOUL.md", "POLICY.md", "LESSONS.md", "memory/long-term.md"]) {
+        expect(yield* fs.exists(`${created.path}/${file}`)).toBe(true);
+      }
 
       const duplicate = yield* Effect.exit(createBotInStateDir(stateDir, { name: "代码评审助手" }));
       expect(Exit.isFailure(duplicate)).toBe(true);
@@ -143,7 +149,11 @@ describe("bot server module", () => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const stateDir = yield* fs.makeTempDirectoryScoped();
-      const sub = yield* createBotInStateDir(stateDir, { name: "Bot" });
+      const sub = yield* createBotInStateDir(stateDir, {
+        name: "Bot",
+        summary: "Researches upstream T3 changes.",
+        inScope: ["external research"],
+      });
 
       const main = yield* ensureMainBotInStateDir(stateDir);
       expect(main).toMatchObject({ id: MAIN_BOT_ID, role: "main" });
@@ -156,11 +166,17 @@ describe("bot server module", () => {
       expect(yield* fs.readFileString(path.join(main.path, "workspace", "CLAUDE.md"))).toBe(
         "@AGENTS.md\n",
       );
-      yield* fs.writeFileString(instructionsPath, "edited by the user");
+      expect(yield* fs.readFileString(instructionsPath)).toContain("No sub-bots yet.");
 
-      const again = yield* ensureMainBotInStateDir(stateDir);
+      // Bot routes only to active sub-bots that already have their own project.
+      const again = yield* ensureMainBotInStateDir(
+        stateDir,
+        new Map([[sub.id, { projectId: "sub-project", homeThreadId: null }]]),
+      );
       expect(again.path).toBe(main.path);
-      expect(yield* fs.readFileString(instructionsPath)).toBe("edited by the user");
+      expect(yield* fs.readFileString(instructionsPath)).toContain(
+        "| Bot: Researches upstream T3 changes. | sub-project | external research |  |",
+      );
 
       const listed = yield* listStateDirBots(stateDir);
       expect(listed.bots.map((bot) => [bot.id, bot.role])).toEqual(

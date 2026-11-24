@@ -39,6 +39,7 @@ function makeHost() {
         return { threadId, projectId, resumed: false };
       }),
     sendMessage: () => Effect.die("unused"),
+    settleThread: () => Effect.void,
     readLatestResult: () => Effect.succeed(null),
     subscribeThreadEvents: () => Stream.empty,
   };

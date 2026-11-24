@@ -1,3 +1,4 @@
+import { isHiddenBotWakeNotification } from "@t3tools/bot/contracts";
 import * as DateTime from "effect/DateTime";
 import { msg } from "gt-react";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
@@ -2047,6 +2048,13 @@ export function deriveMessagesTimelineRows(
       compactedRunIds.has(timelineEntry.entry.runId) &&
       timelineEntry.entry.questionAnswer !== undefined &&
       claudeResumeCompactionAge(timelineEntry.entry.questionAnswer) !== null
+    ) {
+      continue;
+    }
+
+    if (
+      timelineEntry.kind === "work" &&
+      isHiddenBotWakeNotification(timelineEntry.entry.projectedItem?.item)
     ) {
       continue;
     }

@@ -7,14 +7,10 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import {
-  BOT_SESSION_RECEIPT_JSON_SCHEMA,
-  MAIN_BOT_ID,
-  type BotListResponse,
-  type BotSummary,
-} from "../contracts.ts";
+import { MAIN_BOT_ID, type BotListResponse, type BotSummary } from "../contracts.ts";
 import type { BotHome } from "./db.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
+import { renderBotFiles, renderMainBotInstructions, renderSessionLog } from "./template.ts";
 
 export class BotCreateValidationError extends Schema.TaggedError<
   BotCreateValidationError,
@@ -45,6 +41,10 @@ export interface BotCreateInput {
   readonly summary?: string | undefined;
   /** Fixed directory and id; a random UUID otherwise. */
   readonly id?: string | undefined;
+  readonly inScope?: ReadonlyArray<string> | undefined;
+  readonly outOfScope?: ReadonlyArray<string> | undefined;
+  readonly persona?: string | undefined;
+  readonly projects?: ReadonlyArray<string> | undefined;
 }
 
 export interface ParsedBotYaml {
@@ -54,7 +54,13 @@ export interface ParsedBotYaml {
   readonly summary?: string;
   readonly version?: string;
   readonly sessionMode?: string;
+  readonly inScope?: ReadonlyArray<string>;
+  readonly outOfScope?: ReadonlyArray<string>;
 }
+
+const decodeStringList = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Array(Schema.String)),
+);
 
 function unquoteYamlScalar(raw: string): string {
   const trimmed = raw.trim();
@@ -87,6 +93,8 @@ export function parseBotYaml(source: string): ParsedBotYaml {
     summary?: string;
     version?: string;
     sessionMode?: string;
+    inScope?: ReadonlyArray<string>;
+    outOfScope?: ReadonlyArray<string>;
   } = {};
   let inRuntime = false;
 
@@ -100,6 +108,14 @@ export function parseBotYaml(source: string): ParsedBotYaml {
       const match = /^([a-zA-Z0-9_]+)\s*:\s*(.*)$/.exec(trimmed);
       if (!match) continue;
       const key = match[1];
+      if (key === "in_scope" || key === "out_of_scope") {
+        const list = decodeStringList((match[2] ?? "").trim());
+        if (list._tag === "Some") {
+          if (key === "in_scope") result.inScope = list.value;
+          else result.outOfScope = list.value;
+        }
+        continue;
+      }
       const value = unquoteYamlScalar(match[2] ?? "");
       if (!value) continue;
       if (key === "id") result.id = value;
@@ -117,24 +133,6 @@ export function parseBotYaml(source: string): ParsedBotYaml {
   }
 
   return result;
-}
-
-function escapeMarkdownTableCell(value: string): string {
-  return value
-    .replaceAll("\\", "\\\\")
-    .replaceAll("|", "\\|")
-    .replaceAll("\n", " ")
-    .replaceAll("\r", " ");
-}
-
-const encodeJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.String));
-
-function setBotYamlSummary(source: string, summary: string): string {
-  const encoded = encodeJsonString(summary);
-  if (/^summary\s*:/m.test(source)) {
-    return source.replace(/^summary\s*:.*$/m, `summary: ${encoded}`);
-  }
-  return `${source.trimEnd()}\nsummary: ${encoded}\n`;
 }
 
 const isDirectory = Effect.fn("bot.isDirectory")(function* (targetPath: string) {
@@ -196,6 +194,8 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
       name: parsed.name?.trim() || entry,
       status: parsed.status?.trim() || "draft",
       summary: parsed.summary?.trim() || "",
+      inScope: parsed.inScope ?? [],
+      outOfScope: parsed.outOfScope ?? [],
       version: parsed.version?.trim() || "0.1.0",
       sessionMode: parsed.sessionMode?.trim() || "fresh_per_run",
       skillsCount,
@@ -220,55 +220,6 @@ export const listStateDirBots = Effect.fn("bot.listStateDirBots")(function* (
   } satisfies BotListResponse;
 });
 
-const copyTemplateDirectory = Effect.fn("bot.copyTemplateDirectory")(function* (
-  sourceDir: string,
-  destDir: string,
-  replacements: Readonly<Record<string, string>>,
-  summaryOverride: string | undefined,
-  isRootLevel: boolean,
-): Effect.fn.Return<void, BotCreateIoError, FileSystem.FileSystem | Path.Path> {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  yield* fs
-    .makeDirectory(destDir, { recursive: true })
-    .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-  const entries = yield* fs
-    .readDirectory(sourceDir)
-    .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-
-  for (const entry of entries) {
-    const srcPath = path.join(sourceDir, entry);
-    const dstPath = path.join(destDir, entry);
-    const stat = yield* fs
-      .stat(srcPath)
-      .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-    if (stat.type === "Directory") {
-      yield* copyTemplateDirectory(srcPath, dstPath, replacements, summaryOverride, false);
-      continue;
-    }
-    if (stat.type !== "File") continue;
-
-    const raw = yield* fs
-      .readFileString(srcPath)
-      .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-    const ext = path.extname(entry).toLowerCase();
-    const jsonEscape = ext === ".yaml" || ext === ".yml" || ext === ".json" || ext === ".jsonl";
-    let rendered = raw.replace(
-      /\{\{(BOT_ID|BOT_NAME|CREATED_AT|CREATED_DATE)\}\}/g,
-      (_match, key: string) => {
-        const value = replacements[key] ?? "";
-        return jsonEscape ? encodeJsonString(value).slice(1, -1) : value;
-      },
-    );
-    if (isRootLevel && entry === "bot.yaml" && summaryOverride) {
-      rendered = setBotYamlSummary(rendered, summaryOverride);
-    }
-    yield* fs
-      .writeFileString(dstPath, rendered)
-      .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-  }
-});
-
 export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
   stateDir: string,
   input: BotCreateInput,
@@ -276,7 +227,6 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const name = input.name.trim();
-  const summary = input.summary?.trim();
 
   if (!name) {
     return yield* new BotCreateValidationError({ detail: "Bot name is required." });
@@ -296,77 +246,24 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
     });
   }
 
-  yield* fs
-    .makeDirectory(paths.directory, { recursive: true })
-    .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-
   const botId = input.id ?? NodeCrypto.randomUUID().toLowerCase();
   const botDir = path.join(paths.directory, botId);
-  const nowIso = DateTime.formatIso(yield* DateTime.now);
-  const createdDate = nowIso.slice(0, 10);
-  const templateDir = path.join(paths.directory, "_template");
-
-  if (yield* isDirectory(templateDir)) {
-    yield* copyTemplateDirectory(
-      templateDir,
-      botDir,
-      {
-        BOT_ID: botId,
-        BOT_NAME: name,
-        CREATED_AT: nowIso,
-        CREATED_DATE: createdDate,
-      },
-      summary,
-      true,
+  const files = renderBotFiles({
+    id: botId,
+    name,
+    summary: input.summary?.trim() ?? "",
+    inScope: input.inScope ?? [],
+    outOfScope: input.outOfScope ?? [],
+    persona: input.persona ?? "",
+    projects: input.projects ?? [],
+    createdAt: DateTime.formatIso(yield* DateTime.now),
+  });
+  for (const [relativePath, content] of files) {
+    const filePath = path.join(botDir, relativePath);
+    yield* fs.makeDirectory(path.dirname(filePath), { recursive: true }).pipe(
+      Effect.flatMap(() => fs.writeFileString(filePath, content)),
+      Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })),
     );
-    yield* fs
-      .makeDirectory(path.join(botDir, ".local", "eval-runs"), { recursive: true })
-      .pipe(Effect.ignore);
-    yield* fs.writeFileString(path.join(botDir, ".local", "metrics.jsonl"), "").pipe(Effect.ignore);
-
-    const rosterPath = path.join(paths.directory, "_shared", "roster.md");
-    if (yield* isFile(rosterPath)) {
-      const rosterRaw = yield* fs.readFileString(rosterPath).pipe(Effect.orElseSucceed(() => ""));
-      if (rosterRaw && !rosterRaw.includes(`\`${botId}\``)) {
-        const marker = "## 标准交接格式";
-        const row = `| \`${botId}\` | ${escapeMarkdownTableCell(name)} | draft | ${escapeMarkdownTableCell(summary || "待补充")} | 待补充 |`;
-        const markerIndex = rosterRaw.indexOf(marker);
-        const updatedRoster =
-          markerIndex >= 0
-            ? `${rosterRaw.slice(0, markerIndex).trimEnd()}\n${row}\n\n${rosterRaw.slice(markerIndex)}`
-            : `${rosterRaw.trimEnd()}\n${row}\n`;
-        yield* fs.writeFileString(rosterPath, updatedRoster).pipe(Effect.ignore);
-      }
-    }
-  } else {
-    yield* fs
-      .makeDirectory(path.join(botDir, "skills"), { recursive: true })
-      .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-    yield* fs
-      .makeDirectory(path.join(botDir, "memory"), { recursive: true })
-      .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-    yield* fs
-      .makeDirectory(path.join(botDir, "workspace"), { recursive: true })
-      .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-    const botYaml = [
-      `id: ${encodeJsonString(botId)}`,
-      `name: ${encodeJsonString(name)}`,
-      `version: "0.1.0"`,
-      `status: "active"`,
-      `summary: ${encodeJsonString(summary || "")}`,
-      "runtime:",
-      `  session_mode: "ephemeral_task_thread"`,
-      "",
-    ].join("\n");
-    yield* fs
-      .writeFileString(path.join(botDir, "bot.yaml"), botYaml)
-      .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-    yield* fs
-      .writeFileString(
-        path.join(botDir, "SOUL.md"),
-        `# ${name}\n\n${summary ? `- 职责：${summary}\n` : ""}`,
-      )
-      .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
   }
 
   const reloaded = yield* listBotsInDirectory(paths.directory);
@@ -378,49 +275,36 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
   }
   return created;
 });
-
-/**
- * Home's standing instructions. Providers read `AGENTS.md` (Claude reads `CLAUDE.md`) from the
- * workspace root, so the Home thread gets them on every turn without any prompt plumbing.
- */
-export const MAIN_BOT_HOME_INSTRUCTIONS = `# Bot
-
-You are Bot, the user's single front desk in T3 Code. Your persona and standing notes are in
-../SOUL.md and ../memory/.
-
-## How you work
-
-- Do not do the work yourself: no editing files, running commands, or research in this thread.
-- Turn what the user wants into one or more sessions, one topic each. Start each with
-  \`t3_thread_launch\`: a short \`title\`, a self-contained \`message\`, no \`projectId\` (sessions
-  belong to this Bot), and always this \`outputSchema\`:
-  ${JSON.stringify(BOT_SESSION_RECEIPT_JSON_SCHEMA)}
-- After launching, say nothing more than one short line naming the session. Do not describe how
-  it will work, and do not wait on it.
-- A "Session receipt" message arrives when a session finishes. Tell the user the outcome in one
-  or two sentences and anything they must decide. Do not repeat the session's work.
-- For progress, look up this Bot's sessions with \`t3_thread_list\` and \`t3_thread_read\` instead
-  of relying on earlier messages here.
-- If a request could belong to more than one open session, ask which one first. To follow up on
-  a session, use \`t3_thread_send\` with the same \`outputSchema\` instead of starting a new one.
-- Reply in the user's language.
-`;
-
-const writeFileIfMissing = Effect.fn("bot.writeFileIfMissing")(function* (
+/** Rewrites a bot-managed file only when its content changed. */
+export const writeFileIfChanged = Effect.fn("bot.writeFileIfChanged")(function* (
   filePath: string,
   content: string,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  if (yield* isFile(filePath)) return;
-  yield* fs.makeDirectory(path.dirname(filePath), { recursive: true });
-  yield* fs.writeFileString(filePath, content);
+  const current = yield* fs.readFileString(filePath).pipe(Effect.option);
+  if (current._tag === "Some" && current.value === content) return;
+  yield* fs.makeDirectory(path.dirname(filePath), { recursive: true }).pipe(
+    Effect.flatMap(() => fs.writeFileString(filePath, content)),
+    Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })),
+  );
 });
 
-/** The main bot is created on first use so the user always has one to open. */
-export const ensureMainBotInStateDir = Effect.fn("bot.ensureMainBot")(function* (stateDir: string) {
+/** Sub-bots Bot may route to: active and already given their own T3 project. */
+export function routableSubBots(bots: ReadonlyArray<BotSummary>): ReadonlyArray<BotSummary> {
+  return bots.filter((bot) => bot.role === "sub" && bot.status === "active" && bot.projectId);
+}
+
+/**
+ * The main bot is created on first use so the user always has one to open. Its `AGENTS.md` is
+ * bot-managed and regenerated, so the roster stays in step with the sub-bots on disk.
+ */
+export const ensureMainBotInStateDir = Effect.fn("bot.ensureMainBot")(function* (
+  stateDir: string,
+  homesByBot?: ReadonlyMap<string, BotHome>,
+) {
   const path = yield* Path.Path;
-  const { bots } = yield* listStateDirBots(stateDir);
+  const { bots } = yield* listStateDirBots(stateDir, homesByBot);
   const main =
     bots.find((bot) => bot.id === MAIN_BOT_ID) ??
     (yield* createBotInStateDir(stateDir, {
@@ -428,13 +312,11 @@ export const ensureMainBotInStateDir = Effect.fn("bot.ensureMainBot")(function* 
       name: "Bot",
       summary: "Takes every request, dispatches sessions, and reports back.",
     }));
-  // Missing files only: the user may have edited them.
-  const workspace = path.join(main.path, "workspace");
-  yield* writeFileIfMissing(path.join(workspace, "AGENTS.md"), MAIN_BOT_HOME_INSTRUCTIONS).pipe(
-    Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })),
+  yield* writeFileIfChanged(
+    path.join(main.path, "workspace", "AGENTS.md"),
+    renderMainBotInstructions(routableSubBots(bots)),
   );
-  yield* writeFileIfMissing(path.join(workspace, "CLAUDE.md"), "@AGENTS.md\n").pipe(
-    Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })),
-  );
+  const sessionLog = path.join(main.path, "workspace", "SESSIONS.md");
+  if (!(yield* isFile(sessionLog))) yield* writeFileIfChanged(sessionLog, renderSessionLog([]));
   return main;
 });

@@ -46,6 +46,12 @@ export interface BotHostLaunchThreadResult {
   readonly resumed: boolean;
 }
 
+export interface BotHostSendMessageNotification {
+  readonly summary: string;
+  readonly outcome: "completed" | "updated" | "failed";
+  readonly detail?: string | undefined;
+}
+
 export interface BotHostSendMessageInput {
   readonly threadId: string;
   readonly text: string;
@@ -54,6 +60,13 @@ export interface BotHostSendMessageInput {
   /** Enforces a JSON Schema-validated structured output from the turn. */
   readonly outputSchema?: Readonly<Record<string, Schema.Json>> | undefined;
   readonly deliveryIntent?: "auto" | "steer" | "restart" | undefined;
+  /** Marks the message as a T3 notification wake instead of a user bubble. */
+  readonly notification?: BotHostSendMessageNotification | undefined;
+  readonly clientRequestId?: string | undefined;
+}
+
+export interface BotHostSettleThreadInput {
+  readonly threadId: string;
   readonly clientRequestId?: string | undefined;
 }
 
@@ -65,7 +78,10 @@ export interface BotHostSendMessageResult {
 
 export interface BotHostThreadLatestResult {
   readonly threadId: string;
+  readonly latestRunId?: string | null | undefined;
   readonly latestRunStatus: string | null;
+  readonly latestRunCreatedBy?: "user" | "agent" | null | undefined;
+  readonly latestRunHasOutputSchema?: boolean | undefined;
   readonly latestAssistantText: string | null;
   readonly latestOutput: unknown | null;
 }
@@ -108,6 +124,7 @@ export interface BotHostOrchestrationShape {
   readonly sendMessage: (
     input: BotHostSendMessageInput,
   ) => Effect.Effect<BotHostSendMessageResult, BotHostError>;
+  readonly settleThread: (input: BotHostSettleThreadInput) => Effect.Effect<void, BotHostError>;
   readonly readLatestResult: (
     threadId: string,
   ) => Effect.Effect<BotHostThreadLatestResult | null, BotHostError>;

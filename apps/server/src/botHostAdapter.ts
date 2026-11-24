@@ -208,6 +208,18 @@ const layerBotServerHostLive = Layer.effect(
             ...(input.freshContext ? { freshContext: true } : {}),
             ...(input.outputSchema !== undefined ? { outputSchema: input.outputSchema } : {}),
             ...(input.deliveryIntent !== undefined ? { deliveryIntent: input.deliveryIntent } : {}),
+            ...(input.notification !== undefined
+              ? {
+                  notification: {
+                    source: { kind: "background_task" as const },
+                    outcome: input.notification.outcome,
+                    summary: input.notification.summary.trim() || "Bot update",
+                    ...(input.notification.detail !== undefined
+                      ? { detail: input.notification.detail }
+                      : {}),
+                  },
+                }
+              : {}),
             dispatchMode: { type: "queue_after_active" },
             createdBy: "agent",
             creationSource: "server",
@@ -219,6 +231,19 @@ const layerBotServerHostLive = Layer.effect(
           messageId,
           sequence: result.sequence,
         };
+      }),
+
+      settleThread: Effect.fn("botHostAdapter.settleThread")(function* (input) {
+        const commandId = CommandId.make(
+          input.clientRequestId?.trim() || `bot:settle:${yield* random.uuidV4()}`,
+        );
+        yield* orchestrator
+          .dispatch({
+            type: "thread.settle",
+            commandId,
+            threadId: ThreadId.make(input.threadId),
+          })
+          .pipe(Effect.mapError((cause) => toHostError("settleThread", cause)));
       }),
 
       readLatestResult: Effect.fn("botHostAdapter.readLatestResult")(function* (threadId) {
@@ -238,13 +263,24 @@ const layerBotServerHostLive = Layer.effect(
           (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
           undefined,
         );
+        const latestRunUserMessage =
+          latestRun !== undefined
+            ? records.value.messages.find((message) => message.id === latestRun.userMessageId)
+            : undefined;
         const latestAssistant = [...records.value.messages]
           .reverse()
           .find((message) => message.role === "assistant" && message.text.trim().length > 0);
 
         return {
           threadId,
+          latestRunId: latestRun?.id ?? null,
           latestRunStatus: latestRun?.status ?? null,
+          latestRunCreatedBy:
+            latestRunUserMessage?.createdBy === "user" ||
+            latestRunUserMessage?.createdBy === "agent"
+              ? latestRunUserMessage.createdBy
+              : null,
+          latestRunHasOutputSchema: latestRun?.outputSchema !== undefined,
           latestAssistantText: latestAssistant?.text ?? null,
           latestOutput: latestRun?.output?.value ?? null,
         };

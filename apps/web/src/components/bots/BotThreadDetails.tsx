@@ -1,7 +1,8 @@
 import { BotOverviewPanel, type BotOverviewDropdownRow } from "@t3tools/bot/web/BotOverviewPanel";
 import { useBotList } from "@t3tools/bot/web/botList";
-import type { BotSummary } from "@t3tools/bot/contracts";
+import { MAIN_BOT_ID, type BotSummary } from "@t3tools/bot/contracts";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { SideThreadOpenIntent } from "@t3tools/client-runtime/side-thread";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   resolveSettledThreadTimestamp,
@@ -9,10 +10,16 @@ import {
   sortSettledThreads,
 } from "@t3tools/client-runtime/state/thread-sort";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/client-runtime/thread-pull-requests";
-import type { EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
-import { useNavigate } from "@tanstack/react-router";
-import { msg, useGT, useMessages } from "gt-react";
 import {
+  ProjectId,
+  type EnvironmentId,
+  type ScopedThreadRef,
+  type ThreadId,
+} from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
+import { T, msg, useGT, useMessages } from "gt-react";
+import {
+  CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
   CircleCheckIcon,
@@ -20,6 +27,7 @@ import {
   CircleDotDashedIcon,
   MessageCircleQuestionIcon,
   ShieldQuestionIcon,
+  Undo2Icon,
   UserRoundIcon,
 } from "lucide-react";
 import {
@@ -31,9 +39,12 @@ import {
 } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
+import { useSideThreadTrigger } from "../../hooks/useSideThreadTrigger";
 import { useSupportsMultiplePullRequests } from "../../hooks/useSupportsMultiplePullRequests";
+import { useThreadActions } from "../../hooks/useThreadActions";
 import { getI18nSnapshot, subscribeI18n } from "../../i18n/runtime";
 import { useOpenPrLink } from "../../lib/openPullRequestLink";
+import { openSideThread } from "../../lib/sideChatPane";
 import { cn } from "../../lib/utils";
 import { requestWorkspaceFocus, workspaceAreaProps } from "../../lib/workspaceFocus";
 import { selectThreadPanelOpen, useRightPanelStore } from "../../rightPanelStore";
@@ -62,8 +73,9 @@ import {
   useLinkedThreadPullRequest,
 } from "../ThreadStatusIndicators";
 import { InlineButton } from "../ui/button";
-import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Popover, PopoverPopup } from "../ui/popover";
 import { ScrollArea } from "../ui/scroll-area";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 type HostDetailsProps = Pick<ComponentProps<typeof ThreadDetailsCard>, "anchor" | "handle"> & {
   readonly environmentId: EnvironmentId;
@@ -71,12 +83,20 @@ type HostDetailsProps = Pick<ComponentProps<typeof ThreadDetailsCard>, "anchor" 
   readonly projectId: ProjectId;
 };
 
-/** Shows the bot's own details in a bot thread's details card, and the host's anywhere else. */
+/** Shows the bot overview only on the main bot's Home thread; sessions show normal thread details. */
 export function withBotThreadDetails<P extends HostDetailsProps>(Host: ComponentType<P>) {
   return function BotAwareThreadDetails(props: P) {
     const bots = useBotList(useEnvironmentHttpBaseUrl(props.environmentId));
-    const bot = bots.find((candidate) => candidate.projectId === props.projectId);
-    return bot === undefined ? <Host {...props} /> : <BotThreadDetails {...props} bot={bot} />;
+    const mainBot = bots.find((candidate) => candidate.id === MAIN_BOT_ID);
+    const isMainBotHome =
+      mainBot !== undefined &&
+      mainBot.projectId === props.projectId &&
+      mainBot.homeThreadId === props.threadId;
+    return isMainBotHome ? (
+      <BotThreadDetails {...props} bot={mainBot} bots={bots} />
+    ) : (
+      <Host {...props} />
+    );
   };
 }
 
@@ -159,40 +179,74 @@ export function BotSessionStatusPills({
   );
 }
 
+function isWorkingBotSession(
+  thread: EnvironmentThreadShell,
+  threadLastVisitedAtById: Readonly<Record<string, string | undefined>>,
+): boolean {
+  const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+  const lastVisitedAt = resolveThreadLastVisitedAt(
+    thread.lastVisitedAt,
+    threadLastVisitedAtById[scopedThreadKey(threadRef)],
+  );
+  const status = resolveSidebarRowStatus({ ...thread, lastVisitedAt });
+  return status === "preparing" || status === "working" || status === "waiting";
+}
+
 function BotThreadDetails({
   anchor,
   handle,
   environmentId,
   threadId,
-  projectId,
   bot,
-}: HostDetailsProps & { readonly bot: BotSummary }) {
+  bots,
+}: HostDetailsProps & {
+  readonly bot: BotSummary;
+  readonly bots: ReadonlyArray<BotSummary>;
+}) {
   const { locale } = useSyncExternalStore(subscribeI18n, getI18nSnapshot);
   const navigate = useNavigate();
+  const { settleThread, unsettleThread } = useThreadActions();
   const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
-  const sessions = useThreadShellsForProjectRefs([{ environmentId, projectId }]).filter(
+  const projectRefs = bots.flatMap((candidate) =>
+    candidate.projectId === null
+      ? []
+      : [{ environmentId, projectId: ProjectId.make(candidate.projectId) }],
+  );
+  const sessions = useThreadShellsForProjectRefs(projectRefs).filter(
     (thread) => thread.archivedAt === null && thread.id !== bot.homeThreadId,
   );
   const sessionsById = new Map(sessions.map((thread) => [thread.id as string, thread]));
   const isSettled = (thread: EnvironmentThreadShell) => thread.settledOverride === "settled";
-  const active = sortThreadsForSidebar(sessions.filter((thread) => !isSettled(thread)));
-  const settled = sortSettledThreads(sessions.filter(isSettled));
-  const { attentionCount, runningCount, doneCount } = countBotActiveSessionStatuses(
-    active,
-    threadLastVisitedAtById,
+  const unsettled = sessions.filter((thread) => !isSettled(thread));
+  const working = sortThreadsForSidebar(
+    unsettled.filter((thread) => isWorkingBotSession(thread, threadLastVisitedAtById)),
   );
-  const openThread = (id: ThreadId) =>
-    void navigate({ to: "/$environmentId/$threadId", params: { environmentId, threadId: id } });
+  const active = sortThreadsForSidebar(
+    unsettled.filter((thread) => !isWorkingBotSession(thread, threadLastVisitedAtById)),
+  );
+  const settled = sortSettledThreads(sessions.filter(isSettled));
+  const panelRef = scopeThreadRef(environmentId, threadId);
+  const openSession = (id: ThreadId, intent: SideThreadOpenIntent) => {
+    openSideThread({
+      threadRef: scopeThreadRef(environmentId, id),
+      panelRef,
+      intent,
+      navigate: (ref) =>
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId: ref.environmentId, threadId: ref.threadId },
+        }),
+    });
+  };
   return (
     <BotDetailsCard threadRef={{ environmentId, threadId }} anchor={anchor} handle={handle}>
       <BotOverviewPanel
         key={bot.id}
         locale={locale}
         activeSessionIds={active.map((thread) => thread.id)}
+        workingSessionIds={working.map((thread) => thread.id)}
         settledSessionIds={settled.map((thread) => thread.id)}
-        attentionCount={attentionCount}
-        doneCount={doneCount}
-        runningCount={runningCount}
+        runningCount={working.length}
         renderSession={(id, onSelect) => {
           const thread = sessionsById.get(id);
           return thread === undefined ? null : (
@@ -201,9 +255,12 @@ function BotThreadDetails({
               thread={thread}
               settled={isSettled(thread)}
               current={thread.id === threadId}
-              onOpen={(targetId) => {
+              onOpen={(targetId, intent) => {
                 onSelect();
-                openThread(targetId);
+                openSession(targetId, intent);
+              }}
+              onToggleSettle={(targetRef, currentlySettled) => {
+                void (currentlySettled ? unsettleThread(targetRef) : settleThread(targetRef));
               }}
             />
           );
@@ -216,52 +273,44 @@ function BotThreadDetails({
 
 function BotSessionDropdownRow({ row }: { readonly row: BotOverviewDropdownRow }) {
   return (
-    <Popover open={row.open} onOpenChange={row.onOpenChange}>
-      <PopoverTrigger
-        render={
-          <button
-            type="button"
-            data-testid={`bot-overview-${row.kind}-trigger`}
-            className={cn(
-              "inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap border outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-              THREAD_DETAILS_PANEL_ROW_CLASS,
-              row.open && "bg-black/[0.035] dark:bg-white/[0.08]",
-            )}
-          />
-        }
+    <div className="flex flex-col">
+      <button
+        type="button"
+        aria-expanded={row.open}
+        data-testid={`bot-overview-${row.kind}-trigger`}
+        onClick={() => row.onOpenChange(!row.open)}
+        className={cn(
+          "inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap border outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          THREAD_DETAILS_PANEL_ROW_CLASS,
+          row.open && "bg-black/[0.035] dark:bg-white/[0.08]",
+        )}
       >
         <span className="min-w-0 flex-1 truncate">{row.label}</span>
         <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
           <BotSessionStatusPills
-            attentionCount={row.attentionCount}
-            attentionLabel={row.attentionLabel}
+            attentionCount={0}
+            attentionLabel=""
             runningCount={row.runningCount}
             runningLabel={row.runningLabel}
-            doneCount={row.doneCount}
-            doneLabel={row.doneLabel}
+            doneCount={0}
+            doneLabel=""
           />
-          {row.totalCount !== null ? (
-            <span
-              data-testid={`bot-overview-${row.kind}-count`}
-              className="text-xs font-medium text-muted-foreground"
-            >
-              {row.totalCount}
-            </span>
-          ) : null}
-          <ChevronDownIcon aria-hidden className={THREAD_DETAILS_PANEL_CHEVRON_CLASS} />
+          <ChevronDownIcon
+            aria-hidden
+            className={cn(
+              THREAD_DETAILS_PANEL_CHEVRON_CLASS,
+              "transition-transform",
+              row.open && "rotate-180",
+            )}
+          />
         </span>
-      </PopoverTrigger>
-      <PopoverPopup
-        side="bottom"
-        align="start"
-        sideOffset={4}
-        padding="none"
-        className="w-(--anchor-width)"
-        data-testid={`bot-overview-${row.kind}-popup`}
-      >
-        <div className="p-1.5">{row.content}</div>
-      </PopoverPopup>
-    </Popover>
+      </button>
+      {row.open ? (
+        <div className="pt-1 pb-1.5" data-testid={`bot-overview-${row.kind}-popup`}>
+          {row.content}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -411,14 +460,18 @@ function BotSessionRow({
   settled,
   current,
   onOpen,
+  onToggleSettle,
 }: {
   readonly thread: EnvironmentThreadShell;
   readonly settled: boolean;
   readonly current: boolean;
-  readonly onOpen: (threadId: ThreadId) => void;
+  readonly onOpen: (threadId: ThreadId, intent: SideThreadOpenIntent) => void;
+  readonly onToggleSettle: (threadRef: ScopedThreadRef, settled: boolean) => void;
 }) {
   const gt = useGT();
   const messages = useMessages();
+  const trigger = useSideThreadTrigger();
+  const triggerProps = trigger((intent) => onOpen(thread.id, intent), { panel: true });
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   const localLastVisitedAt = useUiStateStore(
     (state) => state.threadLastVisitedAtById[scopedThreadKey(threadRef)],
@@ -517,7 +570,7 @@ function BotSessionRow({
         status={prStatusIndicator(pr, linkedPullRequest?.sourceControlProvider, messages)}
         onOpenList={() => {
           useRightPanelStore.getState().open(threadRef, "pull-requests");
-          if (!current) onOpen(thread.id);
+          if (!current) onOpen(thread.id, "main");
         }}
         onOpenPullRequest={(event, targetUrl) => {
           const url = targetUrl ?? pr?.url ?? currentLinkedPr?.url;
@@ -532,11 +585,13 @@ function BotSessionRow({
         role="button"
         tabIndex={0}
         aria-current={current ? "page" : undefined}
-        onClick={() => onOpen(thread.id)}
+        {...triggerProps}
         onKeyDown={(event) => {
+          triggerProps.onKeyDown?.(event);
+          if (event.defaultPrevented) return;
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
-          onOpen(thread.id);
+          onOpen(thread.id, "primary");
         }}
         className={cn(
           "group/sidebar-row relative flex h-9 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
@@ -559,28 +614,66 @@ function BotSessionRow({
           {thread.title}
         </span>
         {prBadge}
-        <span className="ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end tabular-nums text-secondary-label">
-          {topStatus !== null && StatusIcon !== null ? (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 text-xs font-medium",
-                topStatus.className,
-              )}
-            >
-              <StatusIcon aria-hidden className="size-3 shrink-0" />
-              {topStatus.label}
-            </span>
-          ) : (
-            <span className="text-xs">
-              <RelativeTimeLabel
-                timestamp={
-                  settled
-                    ? resolveSettledThreadTimestamp(thread)
-                    : resolveThreadActivityTimestamp(thread)
+        <span className="relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end tabular-nums text-secondary-label">
+          <span
+            className={cn(
+              "inline-flex items-center",
+              (settled ||
+                (status !== "preparing" && status !== "working" && status !== "waiting")) &&
+                "transition-opacity group-any-hover/sidebar-row:opacity-0 group-focus-within/sidebar-row:opacity-0",
+            )}
+          >
+            {topStatus !== null && StatusIcon !== null ? (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 text-xs font-medium",
+                  topStatus.className,
+                )}
+              >
+                <StatusIcon aria-hidden className="size-3 shrink-0" />
+                {topStatus.label}
+              </span>
+            ) : (
+              <span className="text-xs">
+                <RelativeTimeLabel
+                  timestamp={
+                    settled
+                      ? resolveSettledThreadTimestamp(thread)
+                      : resolveThreadActivityTimestamp(thread)
+                  }
+                />
+              </span>
+            )}
+          </span>
+          {settled || (status !== "preparing" && status !== "working" && status !== "waiting") ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={settled ? gt("Un-settle thread") : gt("Settle thread")}
+                    data-testid={settled ? "bot-session-unsettle" : "bot-session-settle"}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleSettle(threadRef, settled);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    className="pointer-events-none absolute inset-y-0 right-0 -mr-1.5 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:opacity-100"
+                  />
                 }
-              />
-            </span>
-          )}
+              >
+                {settled ? (
+                  <Undo2Icon className="mb-px size-3.5" />
+                ) : (
+                  <CheckIcon className="size-3" />
+                )}
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {settled ? <T>Un-settle thread</T> : <T>Settle thread</T>}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
         </span>
       </div>
     </li>
