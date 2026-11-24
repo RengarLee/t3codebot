@@ -231,6 +231,9 @@ jobs:
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
+      - name: Rebrand as Steward
+        run: node scripts/bot-rebrand.ts
+
       - name: Build JS bundle
         env:
           T3CODE_TELEMETRY_CHANNEL: dev
