@@ -1,13 +1,13 @@
-name: Bot Upstream Stable Sync
+name: Bot Upstream Nightly Sync
 
 on:
   schedule:
-    # Poll upstream pingdotgg/t3code stable releases every 30 minutes (offset from :00).
-    - cron: "17,47 * * * *"
+    # Poll upstream pingdotgg/t3code nightly releases once daily (00:17 UTC / 08:17 UTC+8).
+    - cron: "17 0 * * *"
   workflow_dispatch:
     inputs:
       upstream_tag:
-        description: "Optional explicit upstream tag to sync (defaults to latest published stable release)"
+        description: "Optional explicit upstream tag to sync (defaults to latest published nightly release)"
         required: false
         default: ""
         type: string
@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   check_upstream:
-    name: Check Upstream Stable Release
+    name: Check Upstream Nightly Release
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -51,7 +51,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - id: check
-        name: Inspect latest upstream stable release
+        name: Inspect latest upstream nightly release
         env:
           GH_TOKEN: ${{ github.token }}
           EXPLICIT_TAG: ${{ inputs.upstream_tag }}
@@ -63,7 +63,7 @@ jobs:
           node scripts/bot-upstream-sync.ts "${args[@]}"
 
   prepare_sync:
-    name: Merge Upstream Stable & Resolve Generated Files
+    name: Merge Upstream Nightly & Resolve Generated Files
     needs: [check_upstream]
     if: needs.check_upstream.outputs.needs_sync == 'true'
     runs-on: ubuntu-24.04
@@ -162,7 +162,7 @@ jobs:
           echo "merge_status=clean" >> "$GITHUB_OUTPUT"
           echo "sync_sha=$sync_sha" >> "$GITHUB_OUTPUT"
 
-      - name: Open conflict tracking issue on manual merge conflict
+      - name: Report manual merge conflict
         if: steps.merge.outputs.merge_status == 'conflict'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -172,9 +172,8 @@ jobs:
         run: |
           set -euo pipefail
           title="Upstream sync conflict on ${UPSTREAM_TAG}"
-          existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
           body=$(cat <<EOF
-          Automatic sync with upstream stable **${UPSTREAM_TAG}** (${UPSTREAM_URL}) stopped because non-generated files had merge conflicts:
+          Automatic sync with upstream **${UPSTREAM_TAG}** (${UPSTREAM_URL}) stopped because non-generated files had merge conflicts:
 
           - Conflicted files: \`${CONFLICT_FILES}\`
           - Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
@@ -188,10 +187,16 @@ jobs:
           \`\`\`
           EOF
           )
-          if [[ -n "$existing" ]]; then
-            gh issue comment "$existing" --body "$body"
+          printf '%s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
+          if gh repo view "$GITHUB_REPOSITORY" --json hasIssuesEnabled --jq '.hasIssuesEnabled' | grep -qx 'true'; then
+            existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+            if [[ -n "$existing" ]]; then
+              gh issue comment "$existing" --body "$body"
+            else
+              gh issue create --title "$title" --body "$body"
+            fi
           else
-            gh issue create --title "$title" --body "$body"
+            echo "::warning::Repository issues are disabled; conflict details were written to the job summary only."
           fi
 
   verify_sync:
@@ -204,7 +209,7 @@ jobs:
       run_full_upstream_tests: true
 
   promote_and_tag:
-    name: Promote Verified Sync to main & Create Stable Tag
+    name: Promote Verified Sync to main & Create Nightly Tag
     needs: [check_upstream, prepare_sync, verify_sync]
     if: |
       needs.prepare_sync.outputs.merge_status == 'clean' &&
@@ -255,7 +260,7 @@ jobs:
 
           release_date="$(date -u -d "$RUN_DATE" +%Y%m%d)"
           meta_out="$(node scripts/bot-release-version.ts \
-            --channel "${SYNC_CHANNEL:-stable}" \
+            --channel "${SYNC_CHANNEL:-nightly}" \
             --source upstream-sync \
             --date "$release_date" \
             --upstream-tag "$UPSTREAM_TAG" \
@@ -271,15 +276,15 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-  release_stable:
-    name: Build All Installers & Publish Stable Release
+  release_nightly:
+    name: Build Windows Installers & Publish Nightly Release
     needs: [check_upstream, promote_and_tag]
     if: needs.promote_and_tag.result == 'success'
     uses: ./.github/workflows/bot-release.yml
     secrets: inherit
     with:
       ref: ${{ needs.promote_and_tag.outputs.release_sha }}
-      channel: ${{ needs.check_upstream.outputs.sync_channel || 'stable' }}
+      channel: ${{ needs.check_upstream.outputs.sync_channel || 'nightly' }}
       source: upstream-sync
       upstream_tag: ${{ needs.check_upstream.outputs.upstream_tag }}
       version: ${{ needs.promote_and_tag.outputs.version }}
@@ -306,7 +311,7 @@ jobs:
           set -euo pipefail
           title="chore(sync): upstream ${UPSTREAM_TAG} (verification failed)"
           body=$(cat <<EOF
-          Merged upstream stable **${UPSTREAM_TAG}** (${UPSTREAM_URL}) cleanly, but the strict verification gate (footprint/typecheck/tests/E2E) failed.
+          Merged upstream **${UPSTREAM_TAG}** (${UPSTREAM_URL}) cleanly, but the strict verification gate (footprint/typecheck/tests/E2E) failed.
 
           - Failing run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           - \`main\` was **not** updated and no release tag was cut.
