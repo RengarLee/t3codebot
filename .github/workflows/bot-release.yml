@@ -288,12 +288,7 @@ jobs:
 
   publish_release:
     name: Publish Windows GitHub Release & Auto-Update Feed
-    needs:
-      [
-        preflight,
-        desktop_win_x64,
-        desktop_win_arm64,
-      ]
+    needs: [preflight, desktop_win_x64, desktop_win_arm64]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
