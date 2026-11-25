@@ -50,6 +50,7 @@ Dedicated bot-owned workflows (none touch upstream `.github/workflows/release.ym
 
 Unsigned builds use the standard `GITHUB_TOKEN`. Automatic PR synchronization additionally needs a repository-scoped credential:
 
-- `BOT_SYNC_TOKEN`: a fine-grained PAT scoped to this repository with **Contents: read and write** and **Pull requests: read and write**. It lets sync PRs trigger verification without the manual workflow approval required for PRs created by `GITHUB_TOKEN`. It must not bypass the `dev` ruleset. Keep **Allow auto-merge** enabled in repository settings.
+- `DEV_SYNC_TOKEN`: a fine-grained PAT scoped to this repository with **Contents: read and write** and **Pull requests: read and write**. It lets sync PRs trigger verification without the manual workflow approval required for PRs created by `GITHUB_TOKEN`. It must not bypass the `dev` ruleset. Keep **Allow auto-merge** enabled in repository settings.
+- `BOT_SYNC_TOKEN` remains an optional, separate credential for upstream promotion into `main`; the dev-sync credential does not change that pipeline's authentication.
 - When deploying this replacement, disable the old **Sync main into dev** workflow in GitHub Actions: its copy on `main` still attempts direct pushes until the next release includes the workflow removal.
 - Windows Azure Trusted Signing (optional): secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`, `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`, `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`.
