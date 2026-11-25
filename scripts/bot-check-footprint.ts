@@ -74,10 +74,14 @@ const BANNED_UPSTREAM_PATTERNS: ReadonlyArray<{ readonly pattern: RegExp; readon
 export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | null>> = {
   // Fork branch policy must be visible to agents starting at the repository root.
   "AGENTS.md": 4,
+  // The fork's update-and-start action must be registered in the root project config.
+  "t3.json": 6,
   // The shared eval runner registers Bot cases; the shared sender helper labels user turns in Bot sessions.
   "evals/mcp-tool-use/README.md": 4,
   "evals/mcp-tool-use/run.ts": 2,
-  "packages/contracts/src/orchestrationV2.ts": 8,
+  "packages/contracts/src/orchestrationV2.ts": 9,
+  // The turn start passes the thread's creator so only agent-created threads label a person's message.
+  "apps/server/src/orchestration-v2/ProviderTurnStartService.ts": 1,
   "packages/contracts/src/orchestrationV2.test.ts": 7,
   "apps/server/package.json": 6,
   "apps/server/src/server.ts": 10,
