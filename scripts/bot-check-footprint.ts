@@ -44,6 +44,7 @@ const BOT_OWNED_EXACT = new Set<string>([
   "apps/web/src/components/settings/BotsSettingsPanel.tsx",
   "apps/web/src/components/sidebar/SidebarBotsBar.tsx",
   "apps/web/src/routes/_chat.settings.bots.tsx",
+  "evals/mcp-tool-use/botSessionCases.ts",
 ]);
 
 const BANNED_UPSTREAM_PATTERNS: ReadonlyArray<{ readonly pattern: RegExp; readonly why: string }> =
@@ -71,6 +72,13 @@ const BANNED_UPSTREAM_PATTERNS: ReadonlyArray<{ readonly pattern: RegExp; readon
  * `null` means auto-generated file (regenerated automatically on upstream sync).
  */
 export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | null>> = {
+  // Fork branch policy must be visible to agents starting at the repository root.
+  "AGENTS.md": 4,
+  // The shared eval runner registers Bot cases; the shared sender helper labels user turns in Bot sessions.
+  "evals/mcp-tool-use/README.md": 4,
+  "evals/mcp-tool-use/run.ts": 2,
+  "packages/contracts/src/orchestrationV2.ts": 8,
+  "packages/contracts/src/orchestrationV2.test.ts": 7,
   "apps/server/package.json": 6,
   "apps/server/src/server.ts": 10,
   "apps/mobile/src/features/settings/environment-maintenance.test.ts": 10,
