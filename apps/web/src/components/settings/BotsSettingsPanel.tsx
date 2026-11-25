@@ -1,22 +1,41 @@
-import { BotsListSection } from "@t3tools/bot/web/BotsSettingsView";
+import { BotsSettingsView } from "@t3tools/bot/web/BotsSettingsView";
 import { createBotTranslator } from "@t3tools/bot/web/i18n";
 import { updateBotClientPreferences, useBotClientPreferences } from "@t3tools/bot/web/preferences";
 import { ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useSyncExternalStore } from "react";
 
+import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import { getI18nSnapshot, subscribeI18n } from "../../i18n/runtime";
-import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "../../state/environments";
+import { readLocalApi } from "../../localApi";
+import {
+  useEnvironmentHttpBaseUrl,
+  usePrimaryEnvironment,
+  usePrimaryEnvironmentId,
+} from "../../state/environments";
+import { BotAddFolderDialog } from "../bots/BotAddFolderDialog";
 import { Switch } from "../ui/switch";
-import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
+import { SettingsPageContainer, SettingsRow } from "./settingsLayout";
 
 export function BotsSettingsPanel() {
   const { locale } = useSyncExternalStore(subscribeI18n, getI18nSnapshot);
   const t = createBotTranslator(locale);
   const enabled = useBotClientPreferences((preferences) => preferences.botsBarEnabled);
   const environmentId = usePrimaryEnvironmentId();
+  const primaryEnvironment = usePrimaryEnvironment();
   const httpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
   const navigate = useNavigate();
+
+  const canPickLocalFolder =
+    typeof window !== "undefined" &&
+    window.desktopBridge !== undefined &&
+    primaryEnvironment !== null &&
+    (primaryEnvironment.entry.target._tag === "PrimaryConnectionTarget" ||
+      isDesktopLocalConnectionTarget(primaryEnvironment.entry.target));
+  const pickFolder = canPickLocalFolder
+    ? async () => (await readLocalApi()?.dialogs.pickFolder()) ?? null
+    : undefined;
+
   const openThread = (threadId: string) => {
     if (environmentId === null) return;
     void navigate({
@@ -24,40 +43,40 @@ export function BotsSettingsPanel() {
       params: { environmentId, threadId: ThreadId.make(threadId) },
     });
   };
+
   const title = t("bots.settings.showBar.title");
   return (
-    <SettingsPageContainer>
-      <SettingsSection title={t("bots.title")}>
-        <SettingsRow
-          id="bots-bar"
-          title={title}
-          devicePreference
-          description={t("bots.settings.showBar.description")}
-          control={
-            <Switch
-              checked={enabled}
-              onCheckedChange={(checked) => updateBotClientPreferences({ botsBarEnabled: checked })}
-              aria-label={title}
-            />
-          }
-        />
-        <SettingsRow id="bots-main" title={t("bots.main.title")}>
-          <BotsListSection
-            role="main"
-            locale={locale}
-            httpBaseUrl={httpBaseUrl}
-            onOpenThread={openThread}
+    <SettingsPageContainer className="gap-6">
+      <BotsSettingsView
+        locale={locale}
+        httpBaseUrl={httpBaseUrl}
+        onOpenThread={openThread}
+        sidebarToggleSlot={
+          <SettingsRow
+            id="bots-bar"
+            title={title}
+            devicePreference
+            description={t("bots.settings.showBar.description")}
+            control={
+              <Switch
+                checked={enabled}
+                onCheckedChange={(checked) =>
+                  updateBotClientPreferences({ botsBarEnabled: checked })
+                }
+                aria-label={title}
+              />
+            }
           />
-        </SettingsRow>
-        <SettingsRow id="bots-list" title={t("bots.list.title")}>
-          <BotsListSection
-            role="sub"
+        }
+        renderAddFolderDialog={(dialogProps) => (
+          <BotAddFolderDialog
+            {...dialogProps}
             locale={locale}
-            httpBaseUrl={httpBaseUrl}
-            onOpenThread={openThread}
+            environmentId={environmentId}
+            onPickFolder={pickFolder}
           />
-        </SettingsRow>
-      </SettingsSection>
+        )}
+      />
     </SettingsPageContainer>
   );
 }

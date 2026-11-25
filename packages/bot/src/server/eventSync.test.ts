@@ -43,6 +43,8 @@ describe("bot session receipts", () => {
       let receipt = { status: "waiting_user", outcome: "Ready for practice.", artifacts: [] };
       const orchestration: BotHostOrchestrationShape = {
         ensureProject: () => Effect.die("unused"),
+        syncProjectFolders: () => Effect.void,
+        updateProjectTitle: () => Effect.void,
         getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: "Practice" }),
         launchThread: () => Effect.die("unused"),
         sendMessage: (input) =>
@@ -103,6 +105,8 @@ describe("bot session receipts", () => {
           const threadId = `${owner}-session`;
           const orchestration: BotHostOrchestrationShape = {
             ensureProject: () => Effect.die("unused"),
+            syncProjectFolders: () => Effect.void,
+            updateProjectTitle: () => Effect.void,
             getThread: () =>
               Effect.succeed({ threadId, projectId: `${owner}-project`, title: "Practice" }),
             launchThread: () => Effect.die("unused"),
@@ -200,6 +204,8 @@ describe("bot session receipts", () => {
         ]);
         const orchestration: BotHostOrchestrationShape = {
           ensureProject: () => Effect.die("unused"),
+          syncProjectFolders: () => Effect.void,
+          updateProjectTitle: () => Effect.void,
           getThread: (threadId) =>
             Effect.succeed({
               threadId,
@@ -298,6 +304,8 @@ describe("bot session receipts", () => {
             projectsByRoot.set(workspaceRoot, projectId);
             return { projectId };
           }),
+        syncProjectFolders: () => Effect.void,
+        updateProjectTitle: () => Effect.void,
         getThread: (threadId) =>
           Effect.succeed({ threadId, projectId: threadId === "in-sub" ? "p2" : "p1", title: "t" }),
         launchThread: () => Effect.die("unused"),
@@ -439,6 +447,8 @@ describe("bot session receipts", () => {
         const sent: Array<BotHostSendMessageInput> = [];
         const orchestration: BotHostOrchestrationShape = {
           ensureProject: () => Effect.die("unused"),
+          syncProjectFolders: () => Effect.void,
+          updateProjectTitle: () => Effect.void,
           getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: threadId }),
           launchThread: () => Effect.die("unused"),
           sendMessage: (input) =>

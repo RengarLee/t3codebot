@@ -128,6 +128,26 @@ const layerBotServerHostLive = Layer.effect(
         return { projectId: project.id };
       }),
 
+      syncProjectFolders: Effect.fn("botHostAdapter.syncProjectFolders")(function* (input) {
+        yield* projectService
+          .update({
+            commandId: CommandId.make(`bot:folders:${yield* random.uuidV4()}`),
+            projectId: ProjectId.make(input.projectId),
+            trackedFolders: input.folders,
+          })
+          .pipe(Effect.mapError((cause) => toHostError("syncProjectFolders", cause)));
+      }),
+
+      updateProjectTitle: Effect.fn("botHostAdapter.updateProjectTitle")(function* (input) {
+        yield* projectService
+          .update({
+            commandId: CommandId.make(`bot:rename:${yield* random.uuidV4()}`),
+            projectId: ProjectId.make(input.projectId),
+            title: input.title,
+          })
+          .pipe(Effect.mapError((cause) => toHostError("updateProjectTitle", cause)));
+      }),
+
       getThread: Effect.fn("botHostAdapter.getThread")(function* (threadId) {
         const records = yield* projections
           .getThreadRecords(ThreadId.make(threadId), [])

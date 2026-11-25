@@ -6,6 +6,7 @@ import type { BotSummary } from "../contracts.ts";
 import type { BotStoreShape } from "./db.ts";
 import type { BotHostOrchestrationShape } from "./host.ts";
 import { listStateDirBots } from "./registry.ts";
+import { toBotTrackedFolders } from "./workingFolders.ts";
 
 export class BotNotFoundError extends Schema.TaggedError<
   BotNotFoundError,
@@ -36,6 +37,22 @@ export const ensureBotProject = Effect.fn("bot.home.ensureProject")(function* (
   });
   const home = yield* deps.store.getHome(bot.id);
   if (home !== null && home.projectId === projectId) return { home, projectId };
+  if (bot.workingFolders.length > 0) {
+    yield* deps.orchestration
+      .syncProjectFolders({
+        projectId,
+        folders: toBotTrackedFolders(path, bot.workingFolders),
+      })
+      .pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("bot working folders initial sync skipped", {
+            botId: bot.id,
+            projectId,
+            error,
+          }),
+        ),
+      );
+  }
   const updated = yield* deps.store.upsertHome(bot.id, {
     homeThreadId: home?.homeThreadId ?? null,
     projectId,
