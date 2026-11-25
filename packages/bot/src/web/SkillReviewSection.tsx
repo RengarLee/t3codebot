@@ -85,9 +85,8 @@ export function SkillReviewSection({ httpBaseUrl, t, botId }: SkillReviewSection
           >
             <span
               aria-hidden="true"
-              className={`pointer-events-none block size-4 rounded-full bg-background shadow-xs transition-transform ${
-                enabled === true ? "translate-x-4.5" : "translate-x-0.5"
-              }`}
+              style={{ transform: `translateX(${enabled === true ? 18 : 2}px)` }}
+              className="pointer-events-none block size-4 rounded-full bg-background shadow-xs transition-transform"
             />
           </button>
         </div>
