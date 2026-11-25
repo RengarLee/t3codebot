@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./testing/replaySenderNotes": {
+      "types": "./src/testing/replaySenderNotes.ts",
+      "import": "./src/testing/replaySenderNotes.ts"
+    },
     "./contracts": {
       "types": "./src/contracts.ts",
       "import": "./src/contracts.ts"

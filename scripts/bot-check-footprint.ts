@@ -81,6 +81,8 @@ export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | nul
   "evals/mcp-tool-use/run.ts": 2,
   "packages/contracts/src/orchestrationV2.ts": 8,
   "packages/contracts/src/orchestrationV2.test.ts": 7,
+  // Replay expectations include the fork's user-sender note without changing upstream recordings.
+  "apps/server/src/orchestration-v2/testkit/ProviderReplayHarness.ts": 27,
   "apps/server/package.json": 6,
   "apps/server/src/server.ts": 10,
   "apps/mobile/src/features/settings/environment-maintenance.test.ts": 10,
