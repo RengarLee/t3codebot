@@ -40,7 +40,7 @@ function makeHost() {
       }),
     sendMessage: () => Effect.die("unused"),
     settleThread: () => Effect.void,
-    readLatestResult: () => Effect.succeed(null),
+    readRunResult: () => Effect.succeed(null),
     subscribeThreadEvents: () => Stream.empty,
   };
   return { orchestration, projectsByRoot, liveThreads, launches };

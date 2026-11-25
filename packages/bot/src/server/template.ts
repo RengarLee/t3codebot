@@ -8,6 +8,16 @@ import {
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
+const SESSION_CONVERSATION_RULES = `Decide who you are addressing from the current message's T3 sender note, not from who
+created this session or which bot owns its project. MainBot can coordinate work here and the
+user can also speak directly in the same session.
+- For MainBot's dispatches and follow-ups, do the work and return the requested receipt.
+- For the user's direct messages, answer the user here in normal conversation. Earlier receipt
+  requirements do not apply unless this request explicitly asks for structured output. Do not
+  send each direct answer to MainBot or close the session just because you answered a question.
+- A direct user message does not by itself cancel the delegated task or change the session's
+  owner. Keep the user's corrections in context when MainBot next follows up.`;
+
 export interface BotTemplateInput {
   readonly id: string;
   readonly name: string;
@@ -144,12 +154,14 @@ notes are in ../SOUL.md and ../memory/.
 
 ## Sessions
 
-Every message Bot hands to a session starts with "[Bot session]". If the first message of your
-thread starts with it, you are a session: ignore the Home rules below, do the task yourself, and
+Bot marks the initial task it hands to a session with "[Bot session]", after any T3 sender note.
+If your initial task has that marker, you are a session: ignore the Home rules below, do the task yourself, and
 finish with the output it asks for. Put full details in this thread (or \`./outputs/\`), keep the
 receipt \`outcome\` to 1-2 concise sentences (under 200 chars), and for ongoing multi-turn
 interactive sessions (e.g. tutoring or practice where the user will keep chatting with you here)
 submit \`status: "needs_decision"\` instead of \`"done"\` until the user wraps up.
+
+${SESSION_CONVERSATION_RULES}
 
 A "Create sub-bot" session drafts the new sub-bot's spec: a unique name, a one-sentence summary,
 3-5 kinds of work it owns split by workflow (research, coding, project tracking) rather than by
@@ -190,7 +202,7 @@ work). Write the spec in the user's language.
 
 ## Sub-bots
 
-Sub-bots are specialists that work in the background; the user only talks to you.
+Sub-bots are specialists whose sessions you coordinate; the user may also talk directly in those sessions.
 
 - Never interrupt the user's original request to propose a sub-bot: finish the requested work as a
   one-off first, and propose the sub-bot only when delivering that finished result.
@@ -279,6 +291,10 @@ the output it asks for. Your persona is in ../SOUL.md, your permissions in ../PO
 rules the user taught you in ../LESSONS.md. Read them before you start. ../memory/ and
 ../skills/ hold your notes and procedures.
 
+## Conversation
+
+${SESSION_CONVERSATION_RULES}
+
 ## Scope
 
 You own:
@@ -293,7 +309,7 @@ ${codeWork}
 
 ## Output
 
-Write full details in this thread or long reports under \`./outputs/\` and list their paths in
+For MainBot's requests, write full details in this thread or long reports under \`./outputs/\` and list their paths in
 \`artifacts\`. Keep the receipt \`outcome\` to 1-2 concise sentences (under 200 chars) so Home stays
 clean. For ongoing multi-turn interactive sessions where you expect the user to keep chatting with
 you directly here (such as language practice or tutoring), finish your initial setup with status

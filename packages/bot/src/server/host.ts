@@ -76,14 +76,15 @@ export interface BotHostSendMessageResult {
   readonly sequence: number;
 }
 
-export interface BotHostThreadLatestResult {
+export interface BotHostThreadRunResult {
   readonly threadId: string;
-  readonly latestRunId?: string | null | undefined;
-  readonly latestRunStatus: string | null;
-  readonly latestRunCreatedBy?: "user" | "agent" | null | undefined;
-  readonly latestRunHasOutputSchema?: boolean | undefined;
-  readonly latestAssistantText: string | null;
-  readonly latestOutput: unknown | null;
+  readonly runId: string;
+  readonly isLatestRun: boolean;
+  readonly status: string | null;
+  readonly createdBy?: "user" | "agent" | null | undefined;
+  readonly hasOutputSchema?: boolean | undefined;
+  readonly assistantText: string | null;
+  readonly output: unknown | null;
 }
 
 export type BotHostThreadLifecycleEvent =
@@ -125,9 +126,10 @@ export interface BotHostOrchestrationShape {
     input: BotHostSendMessageInput,
   ) => Effect.Effect<BotHostSendMessageResult, BotHostError>;
   readonly settleThread: (input: BotHostSettleThreadInput) => Effect.Effect<void, BotHostError>;
-  readonly readLatestResult: (
+  readonly readRunResult: (
     threadId: string,
-  ) => Effect.Effect<BotHostThreadLatestResult | null, BotHostError>;
+    runId: string,
+  ) => Effect.Effect<BotHostThreadRunResult | null, BotHostError>;
   readonly subscribeThreadEvents: () => Stream.Stream<BotHostThreadLifecycleEvent, BotHostError>;
 }
 
