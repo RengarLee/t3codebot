@@ -106,12 +106,9 @@ export function BotAddFolderDialog({
   const handleNativeBrowse = async () => {
     if (!onPickFolder || disabled) return;
     setIsPicking(true);
-    let picked: string | null = null;
-    try {
-      picked = await onPickFolder();
-    } finally {
+    const picked = await onPickFolder().finally(() => {
       setIsPicking(false);
-    }
+    });
     if (picked) {
       setQuery(picked);
       await submitPath(picked);
