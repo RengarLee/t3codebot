@@ -1,3 +1,5 @@
+import { SKILL_MESSAGES } from "./i18nSkills.ts";
+
 export const BOT_MESSAGES = {
   "bots.title": {
     en: "Bots",
@@ -521,6 +523,7 @@ export const BOT_MESSAGES = {
     ru: "Сейчас этот бот имеет доступ только к своей рабочей папке. Добавьте папку, чтобы разрешить работу в другом месте.",
     sv: "Den här boten kommer just nu bara åt sin egen arbetsmapp. Lägg till en mapp för att låta den arbeta någon annanstans.",
   },
+  ...SKILL_MESSAGES,
 } as const;
 
 export type BotMessageKey = keyof typeof BOT_MESSAGES;
@@ -531,19 +534,35 @@ function resolveLocaleTag(locale: string | undefined): string {
   return normalized;
 }
 
-export function translateBotMessage(locale: string | undefined, key: BotMessageKey): string {
+export type BotMessageParams = Readonly<Record<string, string | number>>;
+
+function fillParams(template: string, params: BotMessageParams | undefined): string {
+  if (params === undefined) return template;
+  return template.replace(/\{(\w+)\}/g, (match, name: string) => {
+    const value = params[name];
+    return value === undefined ? match : String(value);
+  });
+}
+
+export function translateBotMessage(
+  locale: string | undefined,
+  key: BotMessageKey,
+  params?: BotMessageParams,
+): string {
   const entry: Record<string, string> = BOT_MESSAGES[key];
   const tag = resolveLocaleTag(locale);
   const exact = entry[tag];
-  if (exact !== undefined) return exact;
+  if (exact !== undefined) return fillParams(exact, params);
   const language = tag.split("-", 1)[0];
   if (language) {
     const byLanguage = entry[language];
-    if (byLanguage !== undefined) return byLanguage;
+    if (byLanguage !== undefined) return fillParams(byLanguage, params);
   }
-  return BOT_MESSAGES[key].en;
+  return fillParams(BOT_MESSAGES[key].en, params);
 }
 
-export function createBotTranslator(locale: string | undefined) {
-  return (key: BotMessageKey): string => translateBotMessage(locale, key);
+export type BotTranslator = (key: BotMessageKey, params?: BotMessageParams) => string;
+
+export function createBotTranslator(locale: string | undefined): BotTranslator {
+  return (key, params) => translateBotMessage(locale, key, params);
 }
