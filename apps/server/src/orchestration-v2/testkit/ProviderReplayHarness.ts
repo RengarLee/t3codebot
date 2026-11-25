@@ -2,8 +2,6 @@ import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { materializeReplaySenderNotes } from "@t3tools/bot/testing/replaySenderNotes";
-import { withMessageSenderNote } from "@t3tools/contracts";
 import type {
   ManagedPolicyDocument,
   ProviderDriverKind,
@@ -273,28 +271,9 @@ export function layerProviderReplay<Transcript extends ProviderReplayTranscript,
   | ProviderSessionManager.ProviderSessionManagerV2,
   Error | MigrationError | PlatformError.PlatformError | SqlError
 > {
-  const messages = [
-    ...scenario.commands,
-    ...(scenario.steps ?? []).flatMap((step) => (step.type === "dispatch" ? [step.command] : [])),
-  ].flatMap((command) =>
-    command.type === "message.dispatch" && command.createdBy === "user"
-      ? [{ text: command.text, annotatedText: withMessageSenderNote(command, command.text) }]
-      : [],
-  );
-  const layerRegistry = Layer.unwrap(
-    harness
-      .decodeTranscript({
-        ...scenario.transcript,
-        entries: materializeReplaySenderNotes(scenario.transcript.entries, messages),
-      })
-      .pipe(
-        Effect.map((transcript) =>
-          harness.makeProviderAdapterRegistryLayer(
-            transcript,
-            options.replayGate === undefined ? {} : { replayGate: options.replayGate },
-          ),
-        ),
-      ),
+  const layerRegistry = harness.makeProviderAdapterRegistryLayer(
+    scenario.transcript,
+    options.replayGate === undefined ? {} : { replayGate: options.replayGate },
   );
   return layerWithRegistry(scenario, layerRegistry, options);
 }
