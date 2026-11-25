@@ -87,7 +87,13 @@ export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | nul
   "apps/web/src/components/chat/MessagesTimeline.logic.ts": 10,
   "apps/web/src/components/chat/ThreadDetailsPanel.tsx": 6,
   "apps/web/src/components/Sidebar.tsx": 10,
-  "apps/web/src/components/ThreadContextChip.tsx": 12,
+  // Bot references compose a sibling settle control without nesting a button inside a link.
+  "apps/web/src/components/ThreadContextChip.tsx": 20,
+  // Header and side-pane slots render the shared bot identity; lookup stays in components/bots.
+  "apps/web/src/components/chat/ChatHeader.tsx": 8,
+  "apps/web/src/components/chat/SideThreadPane.tsx": 10,
+  // The existing lifecycle footer supplies a settle action alongside its unsettle state.
+  "apps/web/src/components/chat/useThreadLifecycle.tsx": 13,
   "apps/web/src/components/settings/SettingsSidebarNav.tsx": 10,
   "apps/web/src/components/settings/settingsSearch.ts": 16,
   "packages/shared/src/cliRelease.ts": 4,
