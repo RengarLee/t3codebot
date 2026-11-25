@@ -1,0 +1,55 @@
+name: Sync main into dev through PR
+
+on:
+  workflow_run:
+    workflows: [Bot Upstream Nightly Sync]
+    types: [completed]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: bot-sync-main-into-dev-pr
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create sync PR and enable merge after verification
+        env:
+          GH_TOKEN: ${{ secrets.BOT_SYNC_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          SYNC_TOKEN: ${{ secrets.BOT_SYNC_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          comparison=$(gh api "repos/$GH_REPO/compare/dev...main")
+          if [[ $(jq -r '.ahead_by' <<< "$comparison") == 0 ]]; then
+            echo "dev already contains main." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ -z "$SYNC_TOKEN" ]]; then
+            echo "::error::Set BOT_SYNC_TOKEN with Contents and Pull requests write access to this repository so PR verification can run without manual approval."
+            exit 1
+          fi
+
+          main_sha=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
+          pr=$(gh pr list --base dev --head main --state open --json url --jq '.[0].url // empty')
+          if [[ -z "$pr" ]]; then
+            body="$RUNNER_TEMP/dev-sync-pr.md"
+            cat > "$body" <<'BODY'
+          Bring upstream updates and fixes from main into dev while preserving commit ancestry.
+
+          GitHub will merge this PR with a merge commit only after required verification passes and all conflicts and review threads are resolved. No direct push or branch-protection bypass is used.
+          BODY
+            pr=$(gh pr create --base dev --head main --title 'chore(sync): merge main into dev' --body-file "$body")
+          fi
+          echo "Sync PR: $pr" >> "$GITHUB_STEP_SUMMARY"
+          gh pr merge "$pr" --auto --merge --match-head-commit "$main_sha"

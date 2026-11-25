@@ -28,8 +28,9 @@ Dedicated bot-owned workflows (none touch upstream `.github/workflows/release.ym
    - **Windows x64 only**: builds and verifies the Windows x64 desktop installer (NSIS `.exe` + `.blockmap`) and Windows x64 CLI archive (`t3-*.zip`), uploading them as GitHub Actions run artifacts without macOS, Linux, Windows arm64, or GitHub Release / auto-update feed publishing.
    - Manual `channel: stable` dispatches remain supported if you ever want to build a stable-versioned artifact (`v<major>.<minor>.<upstreamPatch * 100 + seq>`).
 
-3. `.github/workflows/bot-sync-dev.yml`
-   - After a push to `main`, including a verified upstream sync, merges `main` into `dev`. If Git reports conflicts, the workflow leaves `dev` untouched and opens or updates one tracking issue with the conflicting files and both commit IDs. Windows packaging runs independently.
+3. `.github/workflows/bot-sync-dev-pr.yml`
+   - After a successful upstream-sync run, and hourly to pick up other changes to `main`, opens or reuses a `main` → `dev` PR and enables GitHub auto-merge. It runs from the default branch (`dev`), so no workflow rollout to `main` is needed. Windows packaging runs independently.
+   - The `dev` ruleset requires a PR and the `All Verifications Passed` check, forbids force pushes and deletion, and has no bypass actors. Sync PRs use a merge commit to preserve shared ancestry; conflicts or failed checks leave the PR open. Do not rebase or squash these recurring sync PRs.
 
 ## 3. Versioning & Release Workflow
 
@@ -47,7 +48,8 @@ Dedicated bot-owned workflows (none touch upstream `.github/workflows/release.ym
 
 ## 4. Optional Repository Configuration
 
-Everything works out of the box with standard `GITHUB_TOKEN` (unsigned builds). Optional secrets unlock signing and branch-protection pushes:
+Unsigned builds use the standard `GITHUB_TOKEN`. Automatic PR synchronization additionally needs a repository-scoped credential:
 
-- `BOT_SYNC_TOKEN` (optional PAT / GitHub App token): use a token authorized to push when branch protection on `main` or `dev` blocks sync pushes by `GITHUB_TOKEN`.
+- `BOT_SYNC_TOKEN`: a fine-grained PAT scoped to this repository with **Contents: read and write** and **Pull requests: read and write**. It lets sync PRs trigger verification without the manual workflow approval required for PRs created by `GITHUB_TOKEN`. It must not bypass the `dev` ruleset. Keep **Allow auto-merge** enabled in repository settings.
+- When deploying this replacement, disable the old **Sync main into dev** workflow in GitHub Actions: its copy on `main` still attempts direct pushes until the next release includes the workflow removal.
 - Windows Azure Trusted Signing (optional): secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`, `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`, `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`.

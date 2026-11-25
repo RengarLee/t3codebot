@@ -276,14 +276,6 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-  # A main push made with GITHUB_TOKEN does not trigger another push workflow.
-  sync_dev:
-    needs: promote_and_tag
-    if: ${{ !cancelled() && needs.promote_and_tag.outputs.release_sha != '' }}
-    uses: ./.github/workflows/bot-sync-dev.yml
-    secrets:
-      BOT_SYNC_TOKEN: ${{ secrets.BOT_SYNC_TOKEN }}
-
   release_nightly:
     name: Build Windows Installers & Publish Nightly Release
     needs: [check_upstream, promote_and_tag]
