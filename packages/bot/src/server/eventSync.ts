@@ -136,6 +136,7 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
     if (receipt._tag === "Some") {
       yield* deps.store.upsertSessionReceipt(session.ownerId, event.threadId, receipt.value);
       if (session.ownerId === MAIN_BOT_ID) yield* writeSessionLog(deps);
+      if (receipt.value.status === "waiting_user") return true;
       yield* deps.orchestration.sendMessage({
         threadId: session.homeThreadId,
         text: formatReceiptForHome(event.threadId, session.thread.title, receipt.value),

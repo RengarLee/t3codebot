@@ -31,6 +31,61 @@ const output = (threadId: string, runId: string, value: unknown): BotHostThreadL
 });
 
 describe("bot session receipts", () => {
+  it.effect("keeps interactive readiness in the session and wakes Home for a later decision", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fs.makeTempDirectoryScoped();
+      const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+      yield* store.upsertHome("main", { homeThreadId: "home", projectId: "p1" });
+      const sent: Array<BotHostSendMessageInput> = [];
+      const settled: Array<BotHostSettleThreadInput> = [];
+      let receipt = { status: "waiting_user", outcome: "Ready for practice.", artifacts: [] };
+      const orchestration: BotHostOrchestrationShape = {
+        ensureProject: () => Effect.die("unused"),
+        getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: "Practice" }),
+        launchThread: () => Effect.die("unused"),
+        sendMessage: (input) =>
+          Effect.sync(() => {
+            sent.push(input);
+            return { threadId: input.threadId, messageId: "m", sequence: sent.length };
+          }),
+        settleThread: (input) =>
+          Effect.sync(() => {
+            settled.push(input);
+          }),
+        readRunResult: (threadId, runId) =>
+          Effect.succeed({
+            threadId,
+            runId,
+            isLatestRun: true,
+            status: "completed",
+            createdBy: "agent",
+            hasOutputSchema: true,
+            assistantText: receipt.outcome,
+            output: receipt,
+          }),
+        subscribeThreadEvents: () => Stream.empty,
+      };
+      const deps = { stateDir, store, orchestration };
+      yield* applyThreadLifecycleEvent(deps, output("practice", "setup", receipt));
+      yield* applyThreadLifecycleEvent(deps, {
+        type: "run_status",
+        threadId: "practice",
+        runId: "setup",
+        status: "completed",
+      });
+      expect(yield* store.listSessionReceipts("main")).toMatchObject([
+        { threadId: "practice", status: "waiting_user" },
+      ]);
+      expect(sent).toEqual([]);
+      expect(settled).toEqual([]);
+      receipt = { status: "needs_decision", outcome: "Approve a paid course?", artifacts: [] };
+      yield* applyThreadLifecycleEvent(deps, output("practice", "decision", receipt));
+      expect(sent.map((message) => message.clientRequestId)).toEqual(["bot:receipt:decision"]);
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
   it.effect(
     "routes alternating senders by run in both bot projects without settling a newer conversation",
     () =>

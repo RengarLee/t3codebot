@@ -83,7 +83,7 @@ export type BotEnsureHomeResponse = typeof BotEnsureHomeResponseSchema.Type;
 
 /** What every Bot session must hand back. T3 enforces it as the launch's `outputSchema`. */
 export const BotSessionReceiptSchema = Schema.Struct({
-  status: Schema.Literals(["done", "blocked", "needs_decision"]),
+  status: Schema.Literals(["done", "blocked", "needs_decision", "waiting_user"]),
   outcome: Schema.String,
   artifacts: Schema.Array(Schema.String),
 });
@@ -95,7 +95,7 @@ export const BOT_SESSION_RECEIPT_JSON_SCHEMA = {
   additionalProperties: false,
   required: ["status", "outcome", "artifacts"],
   properties: {
-    status: { type: "string", enum: ["done", "blocked", "needs_decision"] },
+    status: { type: "string", enum: ["done", "blocked", "needs_decision", "waiting_user"] },
     outcome: {
       type: "string",
       description:
