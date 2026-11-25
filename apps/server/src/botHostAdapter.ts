@@ -9,6 +9,7 @@ import {
   CommandId,
   MessageId,
   ProjectId,
+  RunId,
   ThreadId,
   type ModelSelection,
   type OrchestrationV2DomainEvent,
@@ -246,43 +247,42 @@ const layerBotServerHostLive = Layer.effect(
           .pipe(Effect.mapError((cause) => toHostError("settleThread", cause)));
       }),
 
-      readLatestResult: Effect.fn("botHostAdapter.readLatestResult")(function* (threadId) {
+      readRunResult: Effect.fn("botHostAdapter.readRunResult")(function* (threadId, runId) {
         const records = yield* projections
           .getThreadRecords(ThreadId.make(threadId), ["runs", "messages"], {
-            includeLatestRun: true,
+            runIds: [RunId.make(runId)],
+            messageRunIds: [RunId.make(runId)],
           })
           .pipe(
-            Effect.mapError((cause) => toHostError("readLatestResult", cause)),
+            Effect.mapError((cause) => toHostError("readRunResult", cause)),
             Effect.option,
           );
         if (records._tag === "None") return null;
 
-        const latestRun = records.value.runs.reduce<
-          (typeof records.value.runs)[number] | undefined
-        >(
-          (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
-          undefined,
+        const run = records.value.runs.find((run) => run.id === runId);
+        if (run === undefined) return null;
+        const latest = yield* projections
+          .getThreadRecords(ThreadId.make(threadId), ["runs"], { includeLatestRun: true })
+          .pipe(Effect.mapError((cause) => toHostError("readRunResult", cause)));
+        const runUserMessage = records.value.messages.find(
+          (message) => message.id === run.userMessageId,
         );
-        const latestRunUserMessage =
-          latestRun !== undefined
-            ? records.value.messages.find((message) => message.id === latestRun.userMessageId)
-            : undefined;
-        const latestAssistant = [...records.value.messages]
+        const assistant = [...records.value.messages]
           .reverse()
           .find((message) => message.role === "assistant" && message.text.trim().length > 0);
 
         return {
           threadId,
-          latestRunId: latestRun?.id ?? null,
-          latestRunStatus: latestRun?.status ?? null,
-          latestRunCreatedBy:
-            latestRunUserMessage?.createdBy === "user" ||
-            latestRunUserMessage?.createdBy === "agent"
-              ? latestRunUserMessage.createdBy
+          runId: run.id,
+          isLatestRun: latest.runs.every((candidate) => candidate.ordinal <= run.ordinal),
+          status: run.status,
+          createdBy:
+            runUserMessage?.createdBy === "user" || runUserMessage?.createdBy === "agent"
+              ? runUserMessage.createdBy
               : null,
-          latestRunHasOutputSchema: latestRun?.outputSchema !== undefined,
-          latestAssistantText: latestAssistant?.text ?? null,
-          latestOutput: latestRun?.output?.value ?? null,
+          hasOutputSchema: run.outputSchema !== undefined,
+          assistantText: assistant?.text ?? null,
+          output: run.output?.value ?? null,
         };
       }),
 

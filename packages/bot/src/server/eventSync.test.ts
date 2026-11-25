@@ -10,14 +10,14 @@ import * as Stream from "effect/Stream";
 
 import { BOT_WAKE_NOTIFICATION_DETAIL } from "../contracts.ts";
 import { openBotStore } from "./db.ts";
-import { startBotEventSyncWorker } from "./eventSync.ts";
+import { applyThreadLifecycleEvent, startBotEventSyncWorker } from "./eventSync.ts";
 import { createBotInStateDir, ensureMainBotInStateDir, listStateDirBots } from "./registry.ts";
 import {
   BotHostError,
   type BotHostOrchestrationShape,
   type BotHostSendMessageInput,
   type BotHostSettleThreadInput,
-  type BotHostThreadLatestResult,
+  type BotHostThreadRunResult,
   type BotHostThreadLifecycleEvent,
 } from "./host.ts";
 
@@ -31,6 +31,70 @@ const output = (threadId: string, runId: string, value: unknown): BotHostThreadL
 });
 
 describe("bot session receipts", () => {
+  it.effect(
+    "routes alternating senders by run in both bot projects without settling a newer conversation",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const stateDir = yield* fs.makeTempDirectoryScoped();
+        const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+        yield* store.upsertHome("main", { homeThreadId: "home", projectId: "main-project" });
+        yield* store.upsertHome("tutor", { homeThreadId: null, projectId: "tutor-project" });
+        const sent: Array<BotHostSendMessageInput> = [];
+        const settled: Array<BotHostSettleThreadInput> = [];
+        const receipt = { status: "done", outcome: "Answer", artifacts: [] };
+        for (const owner of ["main", "tutor"]) {
+          const threadId = `${owner}-session`;
+          const orchestration: BotHostOrchestrationShape = {
+            ensureProject: () => Effect.die("unused"),
+            getThread: () =>
+              Effect.succeed({ threadId, projectId: `${owner}-project`, title: "Practice" }),
+            launchThread: () => Effect.die("unused"),
+            sendMessage: (input) =>
+              Effect.sync(() => {
+                sent.push(input);
+                return { threadId: input.threadId, messageId: "m", sequence: sent.length };
+              }),
+            settleThread: (input) =>
+              Effect.sync(() => {
+                settled.push(input);
+              }),
+            readRunResult: (requestedThread, runId) =>
+              Effect.succeed({
+                threadId: requestedThread,
+                runId,
+                isLatestRun: runId === "user-new",
+                status: "completed",
+                createdBy: runId === "bot-old" ? "agent" : "user",
+                hasOutputSchema: true,
+                assistantText: "Answer",
+                output: receipt,
+              }),
+            subscribeThreadEvents: () => Stream.empty,
+          };
+          const deps = { stateDir, store, orchestration };
+          for (const runId of ["user-old", "bot-old", "user-new"]) {
+            yield* applyThreadLifecycleEvent(deps, output(threadId, runId, receipt));
+            yield* applyThreadLifecycleEvent(deps, {
+              type: "run_status",
+              threadId,
+              runId,
+              status: "completed",
+            });
+          }
+          expect((yield* store.listSessionReceipts(owner)).map((entry) => entry.threadId)).toEqual([
+            threadId,
+          ]);
+        }
+        expect(sent.map((entry) => entry.clientRequestId)).toEqual([
+          "bot:receipt:bot-old",
+          "bot:receipt:bot-old",
+        ]);
+        expect(settled).toEqual([]);
+      }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
   it.effect(
     "records only valid receipts from bot sessions and passes each to the main Home once",
     () =>
@@ -51,29 +115,31 @@ describe("bot session receipts", () => {
         };
         const sent: Array<BotHostSendMessageInput> = [];
         const settled: Array<BotHostSettleThreadInput> = [];
-        const latestByThread = new Map<string, BotHostThreadLatestResult>([
+        const resultsByThread = new Map<string, BotHostThreadRunResult>([
           [
             "fix",
             {
               threadId: "fix",
-              latestRunId: "r1",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: true,
-              latestAssistantText: "Fixed the parser.",
-              latestOutput: receipt,
+              runId: "r1",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              hasOutputSchema: true,
+              assistantText: "Fixed the parser.",
+              output: receipt,
             },
           ],
           [
             "survey",
             {
               threadId: "survey",
-              latestRunId: "r5",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: true,
-              latestAssistantText: "Choose between option A and B.",
-              latestOutput: needsDecision,
+              runId: "r5",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              hasOutputSchema: true,
+              assistantText: "Choose between option A and B.",
+              output: needsDecision,
             },
           ],
         ]);
@@ -95,7 +161,7 @@ describe("bot session receipts", () => {
             Effect.sync(() => {
               settled.push(input);
             }),
-          readLatestResult: (threadId) => Effect.succeed(latestByThread.get(threadId) ?? null),
+          readRunResult: (threadId) => Effect.succeed(resultsByThread.get(threadId) ?? null),
           subscribeThreadEvents: () =>
             Stream.fromIterable([
               output("fix", "r1", receipt),
@@ -186,7 +252,16 @@ describe("bot session receipts", () => {
             return { threadId: input.threadId, messageId: "m", sequence: sent.length };
           }),
         settleThread: () => Effect.void,
-        readLatestResult: () => Effect.succeed(null),
+        readRunResult: (threadId, runId) =>
+          Effect.succeed({
+            threadId,
+            runId,
+            isLatestRun: true,
+            status: "completed",
+            createdBy: "agent",
+            assistantText: null,
+            output: spec,
+          }),
         subscribeThreadEvents: () =>
           Stream.fromIterable([
             output("hire", "r1", spec),
@@ -250,53 +325,57 @@ describe("bot session receipts", () => {
             "src/b.ts",
           ],
         };
-        const latestByThread = new Map<string, BotHostThreadLatestResult>([
+        const resultsByThread = new Map<string, BotHostThreadRunResult>([
           [
             "report",
             {
               threadId: "report",
-              latestRunId: "r-report",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: true,
-              latestAssistantText: "Full weekly report...",
-              latestOutput: longReceipt,
+              runId: "r-report",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              hasOutputSchema: true,
+              assistantText: "Full weekly report...",
+              output: longReceipt,
             },
           ],
           [
             "forgot-receipt",
             {
               threadId: "forgot-receipt",
-              latestRunId: "r-forgot",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: true,
-              latestAssistantText: "Finished checking upstream PRs without calling submit output.",
-              latestOutput: null,
+              runId: "r-forgot",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              hasOutputSchema: true,
+              assistantText: "Finished checking upstream PRs without calling submit output.",
+              output: null,
             },
           ],
           [
             "crashed",
             {
               threadId: "crashed",
-              latestRunId: "r-crashed",
-              latestRunStatus: "failed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: false,
-              latestAssistantText: "Rate limit exceeded.",
-              latestOutput: null,
+              runId: "r-crashed",
+              isLatestRun: true,
+              status: "failed",
+              createdBy: "agent",
+              hasOutputSchema: false,
+              assistantText: "Rate limit exceeded.",
+              output: null,
             },
           ],
           [
             "english-practice",
             {
               threadId: "english-practice",
-              latestRunId: "r-user-turn",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "user",
-              latestRunHasOutputSchema: false,
-              latestAssistantText: "Great pronunciation! Try the next sentence.",
-              latestOutput: null,
+              runId: "r-user-turn",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "user",
+              hasOutputSchema: true,
+              assistantText: "Great pronunciation! Try the next sentence.",
+              output: { status: "done", outcome: "Direct answer", artifacts: [] },
             },
           ],
         ]);
@@ -321,7 +400,7 @@ describe("bot session receipts", () => {
                 detail: "simulated settle failure",
               });
             }),
-          readLatestResult: (threadId) => Effect.succeed(latestByThread.get(threadId) ?? null),
+          readRunResult: (threadId) => Effect.succeed(resultsByThread.get(threadId) ?? null),
           subscribeThreadEvents: () =>
             Stream.fromIterable([
               output("report", "r-report", longReceipt),
@@ -333,6 +412,11 @@ describe("bot session receipts", () => {
                 status: "completed",
               },
               { type: "run_status", threadId: "crashed", runId: "r-crashed", status: "failed" },
+              output("english-practice", "r-user-turn", {
+                status: "done",
+                outcome: "Direct answer",
+                artifacts: [],
+              }),
               {
                 type: "run_status",
                 threadId: "english-practice",

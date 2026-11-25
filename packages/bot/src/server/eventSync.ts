@@ -130,6 +130,8 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
 
     const session = yield* resolveBotSession(deps, event.threadId);
     if (session === null) return false;
+    const run = yield* deps.orchestration.readRunResult(event.threadId, event.runId);
+    if (run?.createdBy !== "agent") return false;
 
     if (receipt._tag === "Some") {
       yield* deps.store.upsertSessionReceipt(session.ownerId, event.threadId, receipt.value);
@@ -180,39 +182,29 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
   const session = yield* resolveBotSession(deps, event.threadId);
   if (session === null) return false;
 
-  const latest = yield* deps.orchestration.readLatestResult(event.threadId);
+  const latest = yield* deps.orchestration.readRunResult(event.threadId, event.runId);
   if (latest === null) return false;
-  if (
-    latest.latestRunId !== undefined &&
-    latest.latestRunId !== null &&
-    latest.latestRunId !== event.runId
-  ) {
-    return false;
-  }
+  if (latest.createdBy !== "agent") return false;
 
-  const receipt = decodeReceipt(latest.latestOutput);
+  const receipt = decodeReceipt(latest.output);
   if (receipt._tag === "Some") {
-    if (event.status === "completed" && receipt.value.status === "done") {
+    if (latest.isLatestRun && event.status === "completed" && receipt.value.status === "done") {
       yield* trySettleThread(deps, event.threadId, event.runId);
       return true;
     }
     return false;
   }
 
-  const spec = decodeSubBotSpec(latest.latestOutput);
+  const spec = decodeSubBotSpec(latest.output);
   if (spec._tag === "Some" && session.ownerId === MAIN_BOT_ID) {
-    if (event.status === "completed") {
+    if (latest.isLatestRun && event.status === "completed") {
       yield* trySettleThread(deps, event.threadId, event.runId);
       return true;
     }
     return false;
   }
 
-  const dispatchedByBot =
-    latest.latestRunCreatedBy === "agent" || latest.latestRunHasOutputSchema === true;
-  if (!dispatchedByBot) return false;
-
-  const assistantDetail = latest.latestAssistantText?.trim() ?? "";
+  const assistantDetail = latest.assistantText?.trim() ?? "";
   if (event.status === "completed") {
     yield* deps.orchestration.sendMessage({
       threadId: session.homeThreadId,
