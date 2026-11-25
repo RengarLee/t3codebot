@@ -48,6 +48,8 @@ describe("bot server module", () => {
         'summary: "日程统筹与待办跟踪"',
         'in_scope: ["日程", "待办"]',
         "out_of_scope: not-a-list",
+        'projects: ["/tmp/repo"]',
+        'working_folders: ["/tmp/notes", "/tmp/docs"]',
         "runtime:",
         '  session_mode: "fresh_per_run"',
       ].join("\n"),
@@ -59,6 +61,8 @@ describe("bot server module", () => {
       status: "active",
       summary: "日程统筹与待办跟踪",
       inScope: ["日程", "待办"],
+      projects: ["/tmp/repo"],
+      workingFolders: ["/tmp/notes", "/tmp/docs"],
       sessionMode: "fresh_per_run",
     });
   });

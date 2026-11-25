@@ -32,6 +32,8 @@ export interface BotTemplateInput {
   readonly persona: string;
   /** Folders whose projects the bot may hand code work to. */
   readonly projects: ReadonlyArray<string>;
+  /** Extra local folders the bot may read and work in directly, besides its own workspace. */
+  readonly workingFolders?: ReadonlyArray<string> | undefined;
   readonly createdAt: string;
 }
 
@@ -70,6 +72,7 @@ function renderBotYaml(input: BotTemplateInput): string {
     `in_scope: ${encodeJson(input.inScope)}`,
     `out_of_scope: ${encodeJson(input.outOfScope)}`,
     `projects: ${encodeJson(input.projects)}`,
+    `working_folders: ${encodeJson(input.workingFolders ?? [])}`,
     `created_at: ${encodeJson(input.createdAt)}`,
     "runtime:",
     `  session_mode: "fresh_per_run"`,
@@ -135,11 +138,33 @@ function tableCell(value: string): string {
   return value.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
 }
 
+function renderWorkingFoldersSection(workingFolders: ReadonlyArray<string>): string {
+  if (workingFolders.length === 0) {
+    return `## Working folders
+
+Only your own workspace folder (\`./\`) is configured right now. Do not read or modify files
+outside it; if a task requires another folder on this machine, ask the user to add it under
+Settings → Bots (or return \`needs_decision\` with the needed folder path).`;
+  }
+
+  return `## Working folders
+
+Besides your own workspace (\`./\`), you may read and work directly in these user-configured working
+folders. Stay within them and your own workspace; if a task needs another folder, ask the user to
+add it under Settings → Bots. Deleting or overwriting important files still requires the user's
+explicit OK.
+
+${workingFolders.map((folder) => `- \`${folder}\``).join("\n")}`;
+}
+
 /**
  * Bot's standing instructions. Providers read `AGENTS.md` (Claude reads `CLAUDE.md`) from the
  * workspace root, so every thread in Bot's project gets them without prompt plumbing.
  */
-export function renderMainBotInstructions(roster: ReadonlyArray<BotSummary>): string {
+export function renderMainBotInstructions(
+  roster: ReadonlyArray<BotSummary>,
+  workingFolders: ReadonlyArray<string> = [],
+): string {
   const rosterTable =
     roster.length === 0
       ? "No sub-bots yet."
@@ -242,6 +267,8 @@ Sub-bots are specialists whose sessions you coordinate; the user may also talk d
 ### Roster
 
 ${rosterTable}
+
+${renderWorkingFoldersSection(workingFolders)}
 `;
 }
 
@@ -283,6 +310,7 @@ export interface BotCodeProject {
 export function renderSubBotInstructions(
   bot: Pick<BotSummary, "name" | "summary" | "inScope" | "outOfScope">,
   codeProjects: ReadonlyArray<BotCodeProject>,
+  workingFolders: ReadonlyArray<string> = [],
 ): string {
   const codeWork =
     codeProjects.length === 0
@@ -315,6 +343,8 @@ ${bulletList(bot.inScope, "Nothing listed yet.")}
 
 You do not take (finish with status \`blocked\` and name where it belongs):
 ${bulletList(bot.outOfScope, "Nothing listed yet.")}
+
+${renderWorkingFoldersSection(workingFolders)}
 
 ## Code work
 

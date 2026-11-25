@@ -24,6 +24,21 @@ export interface BotHostEnsureProjectInput {
   readonly title: string;
 }
 
+export interface BotHostTrackedFolder {
+  readonly path: string;
+  readonly name: string;
+}
+
+export interface BotHostSyncProjectFoldersInput {
+  readonly projectId: string;
+  readonly folders: ReadonlyArray<BotHostTrackedFolder>;
+}
+
+export interface BotHostUpdateProjectTitleInput {
+  readonly projectId: string;
+  readonly title: string;
+}
+
 export interface BotHostThreadInfo {
   readonly threadId: string;
   readonly projectId: string;
@@ -117,6 +132,14 @@ export interface BotHostOrchestrationShape {
   readonly ensureProject: (
     input: BotHostEnsureProjectInput,
   ) => Effect.Effect<{ readonly projectId: string }, BotHostError>;
+  /** Replaces the project's user-added tracked folders so sandboxes grant those roots. */
+  readonly syncProjectFolders: (
+    input: BotHostSyncProjectFoldersInput,
+  ) => Effect.Effect<void, BotHostError>;
+  /** Updates the T3 project title when a bot is renamed. */
+  readonly updateProjectTitle: (
+    input: BotHostUpdateProjectTitleInput,
+  ) => Effect.Effect<void, BotHostError>;
   /** Null when the thread is unknown or deleted. */
   readonly getThread: (threadId: string) => Effect.Effect<BotHostThreadInfo | null, BotHostError>;
   readonly launchThread: (

@@ -5,6 +5,12 @@ export const BOT_HEALTH_ROUTE = `${BOT_API_PREFIX}/health` as const;
 export const BOT_LIST_ROUTE = `${BOT_API_PREFIX}/list` as const;
 /** `POST /api/bots/home/:botId` opens (or launches) the bot's Home thread. */
 export const BOT_HOME_ROUTE_PREFIX = `${BOT_API_PREFIX}/home` as const;
+/** `POST /api/bots/working-folders/:botId` replaces the bot's configured working folders. */
+export const BOT_WORKING_FOLDERS_ROUTE_PREFIX = `${BOT_API_PREFIX}/working-folders` as const;
+/** `POST /api/bots/profile/:botId` updates editable metadata (such as display name) for a bot. */
+export const BOT_PROFILE_ROUTE_PREFIX = `${BOT_API_PREFIX}/profile` as const;
+
+export const BOT_WORKING_FOLDERS_MAX = 128;
 
 export const BOT_CLIENT_PREFERENCES_STORAGE_KEY = "t3codebot.clientPreferences.v1";
 
@@ -51,6 +57,8 @@ export const BotSummarySchema = Schema.Struct({
   /** Kinds of work this bot owns and refuses; Bot routes by them. */
   inScope: Schema.Array(Schema.String),
   outOfScope: Schema.Array(Schema.String),
+  /** Extra local folders this bot may read and work in directly, besides its own workspace. */
+  workingFolders: Schema.Array(Schema.String),
   version: Schema.String,
   sessionMode: Schema.String,
   skillsCount: Schema.Int,
@@ -80,6 +88,26 @@ export const BotEnsureHomeResponseSchema = Schema.Struct({
   home: BotHomeRecordSchema,
 });
 export type BotEnsureHomeResponse = typeof BotEnsureHomeResponseSchema.Type;
+
+export const BotUpdateWorkingFoldersRequestSchema = Schema.Struct({
+  workingFolders: Schema.Array(Schema.String),
+});
+export type BotUpdateWorkingFoldersRequest = typeof BotUpdateWorkingFoldersRequestSchema.Type;
+
+export const BotUpdateWorkingFoldersResponseSchema = Schema.Struct({
+  bot: BotSummarySchema,
+});
+export type BotUpdateWorkingFoldersResponse = typeof BotUpdateWorkingFoldersResponseSchema.Type;
+
+export const BotUpdateProfileRequestSchema = Schema.Struct({
+  name: Schema.String,
+});
+export type BotUpdateProfileRequest = typeof BotUpdateProfileRequestSchema.Type;
+
+export const BotUpdateProfileResponseSchema = Schema.Struct({
+  bot: BotSummarySchema,
+});
+export type BotUpdateProfileResponse = typeof BotUpdateProfileResponseSchema.Type;
 
 /** What every Bot session must hand back. T3 enforces it as the launch's `outputSchema`. */
 export const BotSessionReceiptSchema = Schema.Struct({

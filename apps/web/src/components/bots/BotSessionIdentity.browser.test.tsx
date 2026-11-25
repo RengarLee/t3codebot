@@ -11,6 +11,7 @@ vi.mock(import("@t3tools/bot/web/botList"), () => ({
       summary: "",
       inScope: [],
       outOfScope: [],
+      workingFolders: [],
       version: "1",
       sessionMode: "session",
       skillsCount: 0,

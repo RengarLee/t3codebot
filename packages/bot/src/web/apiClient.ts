@@ -1,13 +1,21 @@
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import {
   BOT_LIST_ROUTE,
   BOT_HOME_ROUTE_PREFIX,
+  BOT_PROFILE_ROUTE_PREFIX,
+  BOT_WORKING_FOLDERS_ROUTE_PREFIX,
   BotEnsureHomeResponseSchema,
   BotListResponseSchema,
+  BotUpdateProfileResponseSchema,
+  BotUpdateWorkingFoldersResponseSchema,
   type BotEnsureHomeResponse,
   type BotListResponse,
+  type BotUpdateProfileRequest,
+  type BotUpdateProfileResponse,
+  type BotUpdateWorkingFoldersResponse,
 } from "../contracts.ts";
 
 export interface BotApiClientOptions {
@@ -72,4 +80,82 @@ export function ensureBotHome(
       Effect.provide(FetchHttpClient.layer),
     ),
   );
+}
+
+export class BotApiRequestError extends Schema.TaggedError<
+  BotApiRequestError,
+  { readonly brand: unique symbol }
+>()("BotApiRequestError", {
+  status: Schema.Int,
+  detail: Schema.String,
+}) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
+/** Replaces a bot's allowed working folders and refreshes all subscribed bot views. */
+export async function updateBotWorkingFolders(
+  botId: string,
+  workingFolders: ReadonlyArray<string>,
+  options?: BotApiClientOptions,
+): Promise<BotUpdateWorkingFoldersResponse> {
+  const route = `${BOT_WORKING_FOLDERS_ROUTE_PREFIX}/${encodeURIComponent(botId)}`;
+  const result = await Effect.runPromise(
+    Effect.gen(function* () {
+      const request = yield* HttpClientRequest.post(buildBotUrl(route, options?.httpBaseUrl)).pipe(
+        HttpClientRequest.bodyJson({ workingFolders }),
+      );
+      const response = yield* HttpClient.execute(request);
+      if (response.status >= 200 && response.status < 300) {
+        return yield* HttpClientResponse.schemaBodyJson(BotUpdateWorkingFoldersResponseSchema)(
+          response,
+        );
+      }
+      const payload = yield* response.json.pipe(Effect.orElseSucceed(() => null));
+      const detail =
+        typeof payload === "object" &&
+        payload !== null &&
+        "error" in payload &&
+        typeof payload.error === "string" &&
+        payload.error.trim().length > 0
+          ? payload.error
+          : `Request failed with status ${response.status}.`;
+      return yield* new BotApiRequestError({ status: response.status, detail });
+    }).pipe(Effect.provide(FetchHttpClient.layer)),
+  );
+  notifyBotsServerStateChanged();
+  return result;
+}
+
+/** Updates a bot's editable profile fields (such as display name) and refreshes subscribed bot views. */
+export async function updateBotProfile(
+  botId: string,
+  input: BotUpdateProfileRequest,
+  options?: BotApiClientOptions,
+): Promise<BotUpdateProfileResponse> {
+  const route = `${BOT_PROFILE_ROUTE_PREFIX}/${encodeURIComponent(botId)}`;
+  const result = await Effect.runPromise(
+    Effect.gen(function* () {
+      const request = yield* HttpClientRequest.post(buildBotUrl(route, options?.httpBaseUrl)).pipe(
+        HttpClientRequest.bodyJson(input),
+      );
+      const response = yield* HttpClient.execute(request);
+      if (response.status >= 200 && response.status < 300) {
+        return yield* HttpClientResponse.schemaBodyJson(BotUpdateProfileResponseSchema)(response);
+      }
+      const payload = yield* response.json.pipe(Effect.orElseSucceed(() => null));
+      const detail =
+        typeof payload === "object" &&
+        payload !== null &&
+        "error" in payload &&
+        typeof payload.error === "string" &&
+        payload.error.trim().length > 0
+          ? payload.error
+          : `Request failed with status ${response.status}.`;
+      return yield* new BotApiRequestError({ status: response.status, detail });
+    }).pipe(Effect.provide(FetchHttpClient.layer)),
+  );
+  notifyBotsServerStateChanged();
+  return result;
 }
