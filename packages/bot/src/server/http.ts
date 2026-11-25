@@ -24,6 +24,7 @@ import { BotServerHost } from "./host.ts";
 import { refreshBotsForSkills } from "./instructions.ts";
 import { updateBotProfile } from "./profile.ts";
 import { ensureMainBotInStateDir, listStateDirBots } from "./registry.ts";
+import { makeSkillReview } from "./skillReview.ts";
 import { installBuiltinSkills, runSkillCommand, type SkillCommandDeps } from "./skills.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 import { updateBotWorkingFolders } from "./workingFolders.ts";
@@ -109,9 +110,13 @@ export const botHttpRoutesLayer = Layer.unwrap(
       );
     yield* ensureMainBot;
 
+    // Background review of chats; its timers and loop live as long as this layer.
+    const skillReview = homeDeps === null ? undefined : yield* makeSkillReview(homeDeps);
+
     const skillDeps: SkillCommandDeps = {
       stateDir,
       store,
+      ...(skillReview === undefined ? {} : { skillReview }),
       ...(homeDeps === null
         ? {}
         : {
@@ -132,7 +137,7 @@ export const botHttpRoutesLayer = Layer.unwrap(
     );
 
     if (homeDeps !== null) {
-      yield* startBotEventSyncWorker(homeDeps);
+      yield* startBotEventSyncWorker(homeDeps, skillReview);
       // Best effort so the first click opens instantly; the sidebar retries on demand.
       yield* homeLock
         .withPermits(1)(ensureBotHome(homeDeps, MAIN_BOT_ID))

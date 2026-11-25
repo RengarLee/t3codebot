@@ -16,6 +16,8 @@ import {
   SkillDeleteRequestSchema,
   SkillHistoryResponseSchema,
   SkillListResponseSchema,
+  SkillReviewNowResponseSchema,
+  SkillReviewSettingsResponseSchema,
   SkillRestoreRequestSchema,
   SkillRevisionResponseSchema,
   SkillSaveRequestSchema,
@@ -257,4 +259,23 @@ export function dismissSkillSuggestion(id: string, options?: BotApiClientOptions
     SkillSuggestionDecisionResponseSchema,
     options,
   );
+}
+
+/** The background review switch. */
+export function fetchSkillReviewSettings(options?: BotApiClientOptions) {
+  return postSkillCommand("reviewSettings", {}, SkillReviewSettingsResponseSchema, options);
+}
+
+export function setSkillReviewEnabled(enabled: boolean, options?: BotApiClientOptions) {
+  return postSkillCommand(
+    "setReviewSettings",
+    { enabled },
+    SkillReviewSettingsResponseSchema,
+    options,
+  );
+}
+
+/** Starts a review of the bot's unreviewed chats without waiting for them; ignores the switch. */
+export function startSkillReview(botId: string, options?: BotApiClientOptions) {
+  return postSkillCommand("reviewNow", { botId }, SkillReviewNowResponseSchema, options);
 }

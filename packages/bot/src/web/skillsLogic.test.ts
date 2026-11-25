@@ -9,6 +9,7 @@ import {
   groupRevisionsByDay,
   isValidSkillName,
   latestLiveRevision,
+  reviewNowStatus,
   SKILL_TRIGGER_LABEL_KEYS,
   skillTriggerLabelKey,
 } from "./skillsLogic.ts";
@@ -135,6 +136,19 @@ describe("isValidSkillName", () => {
     for (const bad of ["", "Release", "a--b", "-a", "a-", "a b", "a".repeat(65)]) {
       expect(isValidSkillName(bad)).toBe(false);
     }
+  });
+});
+
+describe("reviewNowStatus", () => {
+  it("reports how many reviews started, or that nothing was waiting", () => {
+    expect(reviewNowStatus(2)).toEqual({
+      key: "bots.skills.review.started",
+      params: { count: 2 },
+    });
+    expect(reviewNowStatus(0)).toEqual({ key: "bots.skills.review.nothing" });
+    expect(translateBotMessage("en", "bots.skills.review.started", { count: 3 })).toBe(
+      "Reviews started: 3.",
+    );
   });
 });
 

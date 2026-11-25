@@ -9,6 +9,8 @@ import {
   SkillDeleteRequestSchema,
   SkillListRequestSchema,
   SkillRefSchema,
+  SkillReviewNowRequestSchema,
+  SkillReviewSettingsSchema,
   SkillRestoreRequestSchema,
   SkillRevisionRequestSchema,
   SkillSaveRequestSchema,
@@ -39,6 +41,7 @@ import {
   type SkillDeps,
 } from "./skillReconciler.ts";
 import { isSafeBotId, parseSkillScopeKey, sharedSkillsRoot, skillScopeRoot } from "./skillRoots.ts";
+import type { SkillReviewService } from "./skillReview.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
 export class SkillValidationError extends Schema.TaggedError<
@@ -88,6 +91,8 @@ export class SkillUnavailableError extends Schema.TaggedError<
 
 export interface SkillCommandDeps extends SkillDeps {
   readonly orchestration?: BotHostOrchestrationShape | undefined;
+  /** The background review. Absent without orchestration, which it needs to launch review threads. */
+  readonly skillReview?: SkillReviewService | undefined;
   /** The bot's Home thread, launched when it has none yet. Needed to accept a suggestion. */
   readonly ensureHome?:
     | ((
@@ -168,6 +173,8 @@ const decodeSaveRequest = Schema.decodeUnknownEffect(SkillSaveRequestSchema);
 const decodeDeleteRequest = Schema.decodeUnknownEffect(SkillDeleteRequestSchema);
 const decodeRestoreRequest = Schema.decodeUnknownEffect(SkillRestoreRequestSchema);
 const decodeDecisionRequest = Schema.decodeUnknownEffect(SkillSuggestionDecisionRequestSchema);
+const decodeReviewSettings = Schema.decodeUnknownEffect(SkillReviewSettingsSchema);
+const decodeReviewNowRequest = Schema.decodeUnknownEffect(SkillReviewNowRequestSchema);
 
 const asBadBody = Effect.mapError(
   () => new SkillValidationError({ detail: "The request body is not valid for this command." }),
@@ -531,6 +538,32 @@ export const acceptSuggestion = Effect.fn("bot.skills.acceptSuggestion")(functio
   return { suggestion: toWireSuggestion(suggestion) };
 });
 
+export const getReviewSettings = Effect.fn("bot.skills.reviewSettings")(function* (
+  deps: SkillDeps,
+) {
+  return { settings: yield* deps.store.getSkillReviewSettings() };
+});
+
+/** Setting what is already set changes nothing, so a repeated request is safe. */
+export const setReviewSettings = Effect.fn("bot.skills.setReviewSettings")(function* (
+  deps: SkillDeps,
+  settings: typeof SkillReviewSettingsSchema.Type,
+) {
+  return { settings: yield* deps.store.setSkillReviewSettings(settings) };
+});
+
+/** Starts reviews of the bot's chats with unreviewed runs, whatever the switch says. Does not wait for them. */
+export const reviewBotNow = Effect.fn("bot.skills.reviewNow")(function* (
+  deps: SkillCommandDeps,
+  botId: string,
+) {
+  yield* assertScopeExists(deps, { scope: "bot", botId });
+  if (deps.skillReview === undefined) {
+    return yield* new SkillUnavailableError({ detail: "Bot orchestration is unavailable." });
+  }
+  return yield* deps.skillReview.reviewNow(botId);
+});
+
 /**
  * Writes each shipped skill to the shared folder once. A skill that was ever recorded (the user
  * deleted it, say) or whose file is already there is left alone: nothing here overwrites.
@@ -621,6 +654,18 @@ export const runSkillCommand = Effect.fn("bot.skills.command")(function* (
       return yield* decodeDecisionRequest(body).pipe(
         asBadBody,
         Effect.flatMap((request) => dismissSuggestion(deps, request.id)),
+      );
+    case BOT_SKILL_COMMANDS.reviewSettings:
+      return yield* getReviewSettings(deps);
+    case BOT_SKILL_COMMANDS.setReviewSettings:
+      return yield* decodeReviewSettings(body).pipe(
+        asBadBody,
+        Effect.flatMap((settings) => setReviewSettings(deps, settings)),
+      );
+    case BOT_SKILL_COMMANDS.reviewNow:
+      return yield* decodeReviewNowRequest(body).pipe(
+        asBadBody,
+        Effect.flatMap((request) => reviewBotNow(deps, request.botId)),
       );
     default:
       return yield* new SkillNotFoundError({ detail: `Unknown skill command: ${command}` });

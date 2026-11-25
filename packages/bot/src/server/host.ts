@@ -102,6 +102,15 @@ export interface BotHostThreadRunResult {
   readonly output: unknown | null;
 }
 
+/** One message of a thread's conversation, in the order the thread shows them. */
+export interface BotHostThreadMessage {
+  readonly id: string;
+  readonly role: "user" | "assistant";
+  readonly text: string;
+  /** Who wrote it: the person, an agent (a dispatched task, say), or unknown. */
+  readonly createdBy: "user" | "agent" | null;
+}
+
 export type BotHostThreadLifecycleEvent =
   | {
       readonly type: "run_status";
@@ -153,6 +162,10 @@ export interface BotHostOrchestrationShape {
     threadId: string,
     runId: string,
   ) => Effect.Effect<BotHostThreadRunResult | null, BotHostError>;
+  /** The thread's conversation in order, or null when the thread is unknown or deleted. */
+  readonly readThreadMessages: (
+    threadId: string,
+  ) => Effect.Effect<ReadonlyArray<BotHostThreadMessage> | null, BotHostError>;
   readonly subscribeThreadEvents: () => Stream.Stream<BotHostThreadLifecycleEvent, BotHostError>;
 }
 

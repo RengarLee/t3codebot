@@ -10,7 +10,13 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
-import type { BotHomeRecord, BotSessionReceipt, SkillTrigger } from "../contracts.ts";
+import {
+  DEFAULT_SKILL_REVIEW_SETTINGS,
+  type BotHomeRecord,
+  type BotSessionReceipt,
+  type SkillReviewSettings,
+  type SkillTrigger,
+} from "../contracts.ts";
 import { BotServerHost } from "./host.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
@@ -63,6 +69,28 @@ export interface SkillSuggestionRecord {
 }
 
 export type NewSkillSuggestion = Omit<SkillSuggestionRecord, "status" | "createdAt" | "decidedAt">;
+
+/** Where background review of one chat stopped, and how many runs finished since. */
+export interface SkillReviewCursorRecord {
+  readonly threadId: string;
+  readonly botId: string;
+  /** The last message a review read; null before the first review. */
+  readonly lastMessageId: string | null;
+  readonly pendingRuns: number;
+  readonly updatedAt: string;
+}
+
+/** A review in flight, kept so its output can be matched after a restart. */
+export interface SkillReviewRecord {
+  readonly reviewThreadId: string;
+  readonly botId: string;
+  readonly reviewedThreadId: string;
+  /** The last message the review was shown. */
+  readonly uptoMessageId: string;
+  readonly createdAt: string;
+}
+
+export type NewSkillReview = Omit<SkillReviewRecord, "createdAt">;
 
 /** The validated receipt a session last handed back, keyed by its T3 thread id. */
 export interface BotSessionReceiptRecord extends BotSessionReceipt {
@@ -136,6 +164,42 @@ export interface BotStoreShape {
     id: string,
     status: "accepted" | "dismissed",
   ) => Effect.Effect<SkillSuggestionRecord | null, BotStoreError>;
+  /** The newest suggestions this bot made, any status, for the review prompt. */
+  readonly listBotSkillSuggestions: (
+    botId: string,
+    limit: number,
+  ) => Effect.Effect<ReadonlyArray<SkillSuggestionRecord>, BotStoreError>;
+  readonly getSkillReviewCursor: (
+    threadId: string,
+  ) => Effect.Effect<SkillReviewCursorRecord | null, BotStoreError>;
+  /** Counts one more finished run for the chat, creating its cursor on the first. */
+  readonly bumpSkillReviewCursor: (
+    threadId: string,
+    botId: string,
+  ) => Effect.Effect<SkillReviewCursorRecord, BotStoreError>;
+  /** Moves the cursor to `lastMessageId` (null keeps the old one) and zeroes the run count. */
+  readonly advanceSkillReviewCursor: (
+    threadId: string,
+    botId: string,
+    lastMessageId: string | null,
+  ) => Effect.Effect<SkillReviewCursorRecord, BotStoreError>;
+  /** Chats with runs nobody reviewed yet, newest activity first; one bot's when `botId` is given. */
+  readonly listSkillReviewCursors: (
+    botId?: string,
+  ) => Effect.Effect<ReadonlyArray<SkillReviewCursorRecord>, BotStoreError>;
+  readonly deleteSkillReviewCursor: (threadId: string) => Effect.Effect<void, BotStoreError>;
+  /** A review already stored for this thread is kept as is. */
+  readonly insertSkillReview: (
+    input: NewSkillReview,
+  ) => Effect.Effect<SkillReviewRecord, BotStoreError>;
+  readonly getSkillReview: (
+    reviewThreadId: string,
+  ) => Effect.Effect<SkillReviewRecord | null, BotStoreError>;
+  readonly deleteSkillReview: (reviewThreadId: string) => Effect.Effect<void, BotStoreError>;
+  readonly getSkillReviewSettings: () => Effect.Effect<SkillReviewSettings, BotStoreError>;
+  readonly setSkillReviewSettings: (
+    settings: SkillReviewSettings,
+  ) => Effect.Effect<SkillReviewSettings, BotStoreError>;
 }
 
 export class BotStore extends Context.Service<BotStore, BotStoreShape>()(
@@ -283,7 +347,74 @@ const MIGRATIONS: ReadonlyArray<Migration> = [
         ON bot_skill_suggestions (status, created_at DESC);
     `,
   },
+  {
+    version: 7,
+    name: "skill_review",
+    sql: `
+      CREATE TABLE bot_skill_review_cursors (
+        thread_id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL,
+        last_message_id TEXT,
+        pending_runs INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX idx_bot_skill_review_cursors_bot
+        ON bot_skill_review_cursors (bot_id, updated_at DESC);
+
+      CREATE TABLE bot_skill_reviews (
+        review_thread_id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL,
+        reviewed_thread_id TEXT NOT NULL,
+        upto_message_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE bot_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `,
+  },
 ];
+
+const SKILL_REVIEW_ENABLED_KEY = "skill_review_enabled";
+
+interface RawSkillReviewCursorRow {
+  readonly thread_id: string;
+  readonly bot_id: string;
+  readonly last_message_id: string | null;
+  readonly pending_runs: number;
+  readonly updated_at: string;
+}
+
+interface RawSkillReviewRow {
+  readonly review_thread_id: string;
+  readonly bot_id: string;
+  readonly reviewed_thread_id: string;
+  readonly upto_message_id: string;
+  readonly created_at: string;
+}
+
+function mapSkillReviewCursorRow(row: RawSkillReviewCursorRow): SkillReviewCursorRecord {
+  return {
+    threadId: row.thread_id,
+    botId: row.bot_id,
+    lastMessageId: row.last_message_id,
+    pendingRuns: row.pending_runs,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapSkillReviewRow(row: RawSkillReviewRow): SkillReviewRecord {
+  return {
+    reviewThreadId: row.review_thread_id,
+    botId: row.bot_id,
+    reviewedThreadId: row.reviewed_thread_id,
+    uptoMessageId: row.upto_message_id,
+    createdAt: row.created_at,
+  };
+}
 
 interface RawSkillRevisionRow {
   readonly scope_key: string;
@@ -459,6 +590,26 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
       )
       .get(botId) as unknown as RawHomeRow | undefined;
     return row ? mapHomeRow(row) : null;
+  };
+
+  const selectReviewCursor = (threadId: string): SkillReviewCursorRecord | null => {
+    const row = db
+      .prepare(
+        `SELECT thread_id, bot_id, last_message_id, pending_runs, updated_at
+           FROM bot_skill_review_cursors WHERE thread_id = ?`,
+      )
+      .get(threadId) as unknown as RawSkillReviewCursorRow | undefined;
+    return row ? mapSkillReviewCursorRow(row) : null;
+  };
+
+  const selectReview = (reviewThreadId: string): SkillReviewRecord | null => {
+    const row = db
+      .prepare(
+        `SELECT review_thread_id, bot_id, reviewed_thread_id, upto_message_id, created_at
+           FROM bot_skill_reviews WHERE review_thread_id = ?`,
+      )
+      .get(reviewThreadId) as unknown as RawSkillReviewRow | undefined;
+    return row ? mapSkillReviewRow(row) : null;
   };
 
   return {
@@ -698,6 +849,116 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
         return row ? mapSkillSuggestionRow(row) : null;
       });
     }),
+
+    listBotSkillSuggestions: (botId, limit) =>
+      tryOp("listBotSkillSuggestions", () => {
+        const rows = db
+          .prepare(
+            `SELECT ${SKILL_SUGGESTION_COLUMNS} FROM bot_skill_suggestions
+              WHERE bot_id = ?
+              ORDER BY created_at DESC, rowid DESC
+              LIMIT ?`,
+          )
+          .all(botId, limit) as unknown as ReadonlyArray<RawSkillSuggestionRow>;
+        return rows.map(mapSkillSuggestionRow);
+      }),
+
+    getSkillReviewCursor: (threadId) =>
+      tryOp("getSkillReviewCursor", () => selectReviewCursor(threadId)),
+
+    bumpSkillReviewCursor: Effect.fn("bot.db.bumpSkillReviewCursor")(function* (threadId, botId) {
+      const now = yield* currentIsoNow;
+      return yield* tryOp("bumpSkillReviewCursor", () => {
+        db.prepare(
+          `INSERT INTO bot_skill_review_cursors
+             (thread_id, bot_id, last_message_id, pending_runs, updated_at)
+           VALUES (?, ?, NULL, 1, ?)
+           ON CONFLICT(thread_id) DO UPDATE SET
+             pending_runs = pending_runs + 1,
+             updated_at = excluded.updated_at`,
+        ).run(threadId, botId, now);
+        return selectReviewCursor(threadId) as SkillReviewCursorRecord;
+      });
+    }),
+
+    advanceSkillReviewCursor: Effect.fn("bot.db.advanceSkillReviewCursor")(
+      function* (threadId, botId, lastMessageId) {
+        const now = yield* currentIsoNow;
+        return yield* tryOp("advanceSkillReviewCursor", () => {
+          db.prepare(
+            `INSERT INTO bot_skill_review_cursors
+               (thread_id, bot_id, last_message_id, pending_runs, updated_at)
+             VALUES (?, ?, ?, 0, ?)
+             ON CONFLICT(thread_id) DO UPDATE SET
+               last_message_id = COALESCE(excluded.last_message_id, last_message_id),
+               pending_runs = 0`,
+          ).run(threadId, botId, lastMessageId, now);
+          return selectReviewCursor(threadId) as SkillReviewCursorRecord;
+        });
+      },
+    ),
+
+    listSkillReviewCursors: (botId) =>
+      tryOp("listSkillReviewCursors", () => {
+        const rows = db
+          .prepare(
+            `SELECT thread_id, bot_id, last_message_id, pending_runs, updated_at
+               FROM bot_skill_review_cursors
+              WHERE pending_runs > 0 AND (? IS NULL OR bot_id = ?)
+              ORDER BY updated_at DESC, rowid DESC`,
+          )
+          .all(botId ?? null, botId ?? null) as unknown as ReadonlyArray<RawSkillReviewCursorRow>;
+        return rows.map(mapSkillReviewCursorRow);
+      }),
+
+    deleteSkillReviewCursor: (threadId) =>
+      tryOp("deleteSkillReviewCursor", () => {
+        db.prepare("DELETE FROM bot_skill_review_cursors WHERE thread_id = ?").run(threadId);
+      }),
+
+    insertSkillReview: Effect.fn("bot.db.insertSkillReview")(function* (input) {
+      const createdAt = yield* currentIsoNow;
+      return yield* tryOp("insertSkillReview", () => {
+        db.prepare(
+          `INSERT OR IGNORE INTO bot_skill_reviews
+             (review_thread_id, bot_id, reviewed_thread_id, upto_message_id, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(
+          input.reviewThreadId,
+          input.botId,
+          input.reviewedThreadId,
+          input.uptoMessageId,
+          createdAt,
+        );
+        return selectReview(input.reviewThreadId) as SkillReviewRecord;
+      });
+    }),
+
+    getSkillReview: (reviewThreadId) => tryOp("getSkillReview", () => selectReview(reviewThreadId)),
+
+    deleteSkillReview: (reviewThreadId) =>
+      tryOp("deleteSkillReview", () => {
+        db.prepare("DELETE FROM bot_skill_reviews WHERE review_thread_id = ?").run(reviewThreadId);
+      }),
+
+    getSkillReviewSettings: () =>
+      tryOp("getSkillReviewSettings", () => {
+        const row = db
+          .prepare("SELECT value FROM bot_settings WHERE key = ?")
+          .get(SKILL_REVIEW_ENABLED_KEY) as unknown as { readonly value: string } | undefined;
+        return row === undefined
+          ? DEFAULT_SKILL_REVIEW_SETTINGS
+          : ({ enabled: row.value === "true" } satisfies SkillReviewSettings);
+      }),
+
+    setSkillReviewSettings: (settings) =>
+      tryOp("setSkillReviewSettings", () => {
+        db.prepare(
+          `INSERT INTO bot_settings (key, value) VALUES (?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        ).run(SKILL_REVIEW_ENABLED_KEY, settings.enabled ? "true" : "false");
+        return { enabled: settings.enabled };
+      }),
   };
 }
 

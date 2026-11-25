@@ -12,6 +12,7 @@ import { createBotTranslator, type BotMessageKey, type BotTranslator } from "./i
 import { useOpenBotHome } from "./openBotHome.ts";
 import { SkillDetailView } from "./SkillDetailView.tsx";
 import { SkillListSection, SkillSuggestionsSection } from "./SkillListSection.tsx";
+import { SkillReviewSection } from "./SkillReviewSection.tsx";
 
 export interface BotAddFolderDialogRenderProps {
   readonly bot: BotSummary;
@@ -538,6 +539,8 @@ function BotDetailView({
         </div>
       </section>
 
+      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={bot.id} />
+
       <SkillSuggestionsSection
         locale={locale}
         httpBaseUrl={httpBaseUrl}
@@ -680,6 +683,8 @@ export function BotsSettingsView({
           })}
         </div>
       </div>
+
+      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={null} />
 
       <SkillSuggestionsSection
         locale={locale}

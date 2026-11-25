@@ -49,6 +49,7 @@ function makeHost(options?: { readonly failSync?: boolean }) {
     sendMessage: () => Effect.die("unused"),
     settleThread: () => Effect.void,
     readRunResult: () => Effect.succeed(null),
+    readThreadMessages: () => Effect.succeed(null),
     subscribeThreadEvents: () => Stream.empty,
   };
   return { orchestration, projectsByRoot, synced };

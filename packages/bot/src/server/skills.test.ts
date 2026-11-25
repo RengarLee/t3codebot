@@ -81,6 +81,7 @@ const setup = Effect.gen(function* () {
       }),
     settleThread: () => Effect.void,
     readRunResult: () => Effect.succeed(null),
+    readThreadMessages: () => Effect.succeed(null),
     subscribeThreadEvents: () => Stream.empty,
   };
   const deps: SkillCommandDeps = {

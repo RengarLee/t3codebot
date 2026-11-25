@@ -214,3 +214,13 @@ export function latestLiveRevision(
 ): SkillRevisionSummary | null {
   return revisions.find((revision) => !revision.deleted) ?? null;
 }
+
+/** The line shown after "Review now": how many reviews started, or that nothing was waiting. */
+export function reviewNowStatus(queued: number): {
+  readonly key: BotMessageKey;
+  readonly params?: { readonly count: number };
+} {
+  return queued > 0
+    ? { key: "bots.skills.review.started", params: { count: queued } }
+    : { key: "bots.skills.review.nothing" };
+}
