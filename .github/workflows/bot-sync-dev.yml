@@ -1,0 +1,86 @@
+name: Sync main into dev
+
+on:
+  push:
+    branches: [main]
+  workflow_call:
+    secrets:
+      BOT_SYNC_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: bot-sync-main-into-dev
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.BOT_SYNC_TOKEN || github.token }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Merge main into dev
+        id: merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "t3codebot-sync[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin refs/heads/main
+          main_sha=$(git rev-parse FETCH_HEAD)
+
+          for _ in 1 2 3; do
+            git fetch --no-tags origin refs/heads/dev
+            dev_sha=$(git rev-parse FETCH_HEAD)
+            git checkout --detach "$dev_sha"
+            if git merge-base --is-ancestor "$main_sha" HEAD; then exit 0; fi
+
+            if ! git merge --no-edit "$main_sha"; then
+              files=$(git diff --name-only --diff-filter=U)
+              [[ -n "$files" ]] || exit 1
+              {
+                printf 'Merging `main` (%s) into `dev` (%s) needs manual resolution.\n\n' "$main_sha" "$dev_sha"
+                printf '%s\n' "$files" | sed 's/^/    /'
+                printf '\n[Workflow run](%s/%s/actions/runs/%s)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+              } > "$RUNNER_TEMP/dev-sync-conflict.md"
+              git merge --abort
+              echo "conflict=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if git push origin HEAD:refs/heads/dev; then exit 0; fi
+            # Retry only if dev advanced while we were merging.
+            remote_dev=$(git ls-remote --exit-code origin refs/heads/dev | cut -f1)
+            [[ "$remote_dev" != "$dev_sha" ]] || exit 1
+          done
+          exit 1
+
+      - name: Open or update the dev sync conflict issue
+        if: steps.merge.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          title='Merge conflict syncing main into dev'
+          body="$RUNNER_TEMP/dev-sync-conflict.md"
+          cat "$body" >> "$GITHUB_STEP_SUMMARY"
+          number=$(gh api --paginate --slurp "repos/$GH_REPO/issues?state=open&per_page=100" \
+            --jq 'first(.[][] | select(.pull_request == null and .title == "Merge conflict syncing main into dev") | .number) // empty')
+          if [[ -n "$number" ]]; then
+            gh issue edit "$number" --body-file "$body"
+          else
+            gh issue create --title "$title" --body-file "$body"
+          fi
