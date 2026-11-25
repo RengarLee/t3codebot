@@ -45,9 +45,9 @@ test(
     await expect(screen.getByText("Create bot")).toBeHidden();
     await browser.keyboard.press("Escape");
 
-    // 4. Settings -> Bots lists the Bot with no create control, and toggles the sidebar entry.
+    // 4. Settings -> Bots chooser lists the Bot with no create control, and toggles the sidebar entry.
     await app.open("/settings/bots");
-    await expect(browser.locator('[data-testid="settings-bot-main"]')).toBeVisible();
+    await expect(browser.locator('[data-testid="settings-bot-row-main"]')).toBeVisible();
     await expect(screen.getByText("Create bot")).toBeHidden();
     const toggle = screen.getByRole("switch", "Show Bot");
     await expect(toggle).toHaveAttribute("aria-checked", "true");

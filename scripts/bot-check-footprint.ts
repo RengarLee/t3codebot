@@ -74,6 +74,8 @@ const BANNED_UPSTREAM_PATTERNS: ReadonlyArray<{ readonly pattern: RegExp; readon
 export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | null>> = {
   // Fork branch policy must be visible to agents starting at the repository root.
   "AGENTS.md": 4,
+  // Project scripts (e.g. the fork's "Update Dev & Start" action) live in the root t3.json.
+  "t3.json": 6,
   // The shared eval runner registers Bot cases; the shared sender helper labels user turns in Bot sessions.
   "evals/mcp-tool-use/README.md": 4,
   "evals/mcp-tool-use/run.ts": 2,
