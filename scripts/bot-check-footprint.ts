@@ -79,7 +79,9 @@ export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | nul
   // The shared eval runner registers Bot cases; the shared sender helper labels user turns in Bot sessions.
   "evals/mcp-tool-use/README.md": 4,
   "evals/mcp-tool-use/run.ts": 2,
-  "packages/contracts/src/orchestrationV2.ts": 8,
+  "packages/contracts/src/orchestrationV2.ts": 9,
+  // The turn start passes the thread's creator so only agent-created threads label a person's message.
+  "apps/server/src/orchestration-v2/ProviderTurnStartService.ts": 1,
   "packages/contracts/src/orchestrationV2.test.ts": 7,
   // Replay expectations include the fork's user-sender note without changing upstream recordings.
   "apps/server/src/orchestration-v2/testkit/ProviderReplayHarness.ts": 27,

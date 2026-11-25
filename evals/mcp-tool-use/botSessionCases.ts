@@ -60,6 +60,7 @@ const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owne
             senderThreadId: ThreadId.make("mainbot-home"),
           },
       "Before we continue, identify who sent this current message. Answer only HUMAN if it came directly from the person, or MAINBOT if it came from the coordinating agent. Do not use tools.",
+      "agent",
     ),
     expect: {
       finalTextMust: [sender === "user" ? "^\\s*HUMAN\\s*$" : "^\\s*MAINBOT\\s*$"],

@@ -739,14 +739,15 @@ describe("withMessageSenderNote", () => {
       "Hi",
       "[T3 Code: this message came through T3 Code's tools, not from the user typing in this chat.]\n\nHi",
     ],
-    [
-      { createdBy: "user", creationSource: "web" },
-      "Hi",
-      "[T3 Code: the user is speaking directly in this thread, even if an agent created it. Respond to the user using this request's output requirements; an earlier agent's receipt instructions do not make this an agent-to-agent turn.]\n\nHi",
-    ],
-    [{ createdBy: "user", creationSource: "web" }, "$deploy ship it", "$deploy ship it"],
+    [{ createdBy: "user", creationSource: "web" }, "Hi", "Hi"],
     [{ createdBy: "agent", creationSource: "server" }, "Hi", "Hi"],
   ] as const)("labels %j's message %j for the provider", (message, text, expected) => {
     expect(withMessageSenderNote(message, text)).toBe(expected);
+  });
+
+  it("labels a person's message only in a thread an agent created", () => {
+    const user = { createdBy: "user", creationSource: "web" } as const;
+    expect(withMessageSenderNote(user, "Hi", "user")).toBe("Hi");
+    expect(withMessageSenderNote(user, "Hi", "agent")).toContain("the user is speaking directly");
   });
 });

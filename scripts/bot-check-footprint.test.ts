@@ -85,7 +85,7 @@ describe("bot-check-footprint", () => {
       { path: "AGENTS.md", added: 5, deleted: 0 },
       { path: "evals/mcp-tool-use/README.md", added: 5, deleted: 0 },
       { path: "evals/mcp-tool-use/run.ts", added: 3, deleted: 0 },
-      { path: "packages/contracts/src/orchestrationV2.ts", added: 6, deleted: 3 },
+      { path: "packages/contracts/src/orchestrationV2.ts", added: 7, deleted: 3 },
       { path: "packages/contracts/src/orchestrationV2.test.ts", added: 7, deleted: 1 },
       { path: "evals/mcp-tool-use/otherCases.ts", added: 1, deleted: 0 },
     ]);
