@@ -11,6 +11,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/client-runtime/thread-pull-requests";
 import {
+  AuthOrchestrationOperateScope,
   ProjectId,
   type EnvironmentId,
   type ScopedThreadRef,
@@ -49,6 +50,7 @@ import { cn } from "../../lib/utils";
 import { requestWorkspaceFocus, workspaceAreaProps } from "../../lib/workspaceFocus";
 import { selectThreadPanelOpen, useRightPanelStore } from "../../rightPanelStore";
 import { useThreadShellsForProjectRefs } from "../../state/entities";
+import { useEnvironmentScope } from "../../state/session";
 import { useEnvironmentHttpBaseUrl } from "../../state/environments";
 import { formatRelativeTime } from "../../timestampFormat";
 import { useUiStateStore } from "../../uiStateStore";
@@ -470,6 +472,7 @@ function BotSessionRow({
 }) {
   const gt = useGT();
   const messages = useMessages();
+  const canOperate = useEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope);
   const trigger = useSideThreadTrigger();
   const triggerProps = trigger((intent) => onOpen(thread.id, intent), { panel: true });
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
@@ -478,6 +481,9 @@ function BotSessionRow({
   );
   const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localLastVisitedAt);
   const status = resolveSidebarRowStatus({ ...thread, lastVisitedAt });
+  const canToggleSettle =
+    canOperate &&
+    (settled || (status !== "preparing" && status !== "working" && status !== "waiting"));
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const recede = shouldRecedeSidebarThread({
     status,
@@ -618,9 +624,8 @@ function BotSessionRow({
           <span
             className={cn(
               "inline-flex items-center",
-              (settled ||
-                (status !== "preparing" && status !== "working" && status !== "waiting")) &&
-                "transition-opacity group-any-hover/sidebar-row:opacity-0 group-focus-within/sidebar-row:opacity-0",
+              canToggleSettle &&
+                "transition-opacity group-any-hover/sidebar-row:opacity-0 group-has-[:focus-visible]/sidebar-row:opacity-0 group-focus-visible/sidebar-row:opacity-0 [@media(hover:none)]:opacity-0",
             )}
           >
             {topStatus !== null && StatusIcon !== null ? (
@@ -645,7 +650,7 @@ function BotSessionRow({
               </span>
             )}
           </span>
-          {settled || (status !== "preparing" && status !== "working" && status !== "waiting") ? (
+          {canToggleSettle ? (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -659,14 +664,14 @@ function BotSessionRow({
                     }}
                     onPointerDown={(event) => event.stopPropagation()}
                     onKeyDown={(event) => event.stopPropagation()}
-                    className="pointer-events-none absolute inset-y-0 right-0 -mr-1.5 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:opacity-100"
+                    className="pointer-events-none absolute inset-y-0 right-0 -mr-1.5 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:opacity-100 group-has-[:focus-visible]/sidebar-row:pointer-events-auto group-focus-visible/sidebar-row:pointer-events-auto group-has-[:focus-visible]/sidebar-row:opacity-100 group-focus-visible/sidebar-row:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
                   />
                 }
               >
                 {settled ? (
                   <Undo2Icon className="mb-px size-3.5" />
                 ) : (
-                  <CheckIcon className="size-3" />
+                  <CheckIcon className="size-4" />
                 )}
               </TooltipTrigger>
               <TooltipPopup side="top">
