@@ -61,4 +61,38 @@ describe("bot-check-footprint", () => {
       ["apps/web/src/components/Sidebar.tsx", "budget_exceeded"],
     ]);
   });
+
+  it("accepts fork workflow guidance and Bot sender integration within their budgets", () => {
+    const report = evaluateUpstreamFootprint([
+      { path: "AGENTS.md", added: 4, deleted: 0 },
+      { path: "evals/mcp-tool-use/README.md", added: 4, deleted: 0 },
+      { path: "evals/mcp-tool-use/run.ts", added: 2, deleted: 0 },
+      { path: "evals/mcp-tool-use/botSessionCases.ts", added: 75, deleted: 0 },
+      { path: "packages/contracts/src/orchestrationV2.ts", added: 5, deleted: 3 },
+      { path: "packages/contracts/src/orchestrationV2.test.ts", added: 6, deleted: 1 },
+    ]);
+    expect(report.violations).toEqual([]);
+    expect(report.ok).toBe(true);
+    expect(report.botOwnedFiles).toEqual(["evals/mcp-tool-use/botSessionCases.ts"]);
+  });
+
+  it("still rejects larger shared-file edits and unrelated eval changes", () => {
+    const report = evaluateUpstreamFootprint([
+      { path: "AGENTS.md", added: 5, deleted: 0 },
+      { path: "evals/mcp-tool-use/README.md", added: 5, deleted: 0 },
+      { path: "evals/mcp-tool-use/run.ts", added: 3, deleted: 0 },
+      { path: "packages/contracts/src/orchestrationV2.ts", added: 6, deleted: 3 },
+      { path: "packages/contracts/src/orchestrationV2.test.ts", added: 7, deleted: 1 },
+      { path: "evals/mcp-tool-use/otherCases.ts", added: 1, deleted: 0 },
+    ]);
+    expect(report.ok).toBe(false);
+    expect(report.violations.map((v) => v.reason)).toEqual([
+      "budget_exceeded",
+      "budget_exceeded",
+      "budget_exceeded",
+      "budget_exceeded",
+      "budget_exceeded",
+      "unlisted",
+    ]);
+  });
 });
