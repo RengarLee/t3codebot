@@ -365,7 +365,7 @@ export const ensureMainBotInStateDir = Effect.fn("bot.ensureMainBot")(function* 
     }));
   yield* writeFileIfChanged(
     path.join(main.path, "workspace", "AGENTS.md"),
-    renderMainBotInstructions(routableSubBots(bots), main.workingFolders),
+    renderMainBotInstructions(routableSubBots(bots)),
   );
   const sessionLog = path.join(main.path, "workspace", "SESSIONS.md");
   if (!(yield* isFile(sessionLog))) yield* writeFileIfChanged(sessionLog, renderSessionLog([]));

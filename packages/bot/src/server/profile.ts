@@ -107,7 +107,7 @@ export const updateBotProfile = Effect.fn("bot.profile.update")(function* (
           );
     yield* writeFileIfChanged(
       path.join(bot.path, "workspace", "AGENTS.md"),
-      renderSubBotInstructions({ ...bot, name }, codeProjects, bot.workingFolders),
+      renderSubBotInstructions({ ...bot, name }, codeProjects),
     );
   }
   yield* ensureMainBotInStateDir(deps.stateDir, refreshedHomes);

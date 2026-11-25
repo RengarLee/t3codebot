@@ -1,5 +1,6 @@
 import { ThreadId, withMessageSenderNote } from "@t3tools/contracts";
 
+import { BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA } from "../../packages/bot/src/contracts.ts";
 import {
   renderMainBotInstructions,
   renderSubBotInstructions,
@@ -163,4 +164,86 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
       maxSteps: 2,
     })),
   ),
+  {
+    id: "bot-home-add-working-folder",
+    area: "bot-session",
+    kind: "bad",
+    pattern: "home-manages-working-folders-directly",
+    experience:
+      "Home tells the user to open Settings -> Bots manually even though the user explicitly asked to grant a folder.",
+    source: {
+      request:
+        "Let Home update working folders directly via the structured update session instead of sending the user to Settings.",
+    },
+    setup: {
+      role: "top",
+      context: renderMainBotInstructions([
+        {
+          id: "english-coach",
+          role: "sub",
+          name: "英语教练",
+          status: "active",
+          summary: "负责英语学习与日常练习。",
+          inScope: ["英语学习", "口语与阅读练习"],
+          outOfScope: ["代码修改"],
+          workingFolders: [],
+          version: "0.1.0",
+          sessionMode: "fresh_per_run",
+          skillsCount: 0,
+          path: "/home/user/.t3/bots/english-coach",
+          projectId: "proj-english",
+          homeThreadId: null,
+        },
+      ]),
+    },
+    prompt: "帮我创建一个用来学习英语的助手，他可以看这个文件夹里的文件 /home/user/study/english",
+    expect: {
+      calls: [
+        {
+          tool: "t3_thread_launch",
+          args: { outputSchema: BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA },
+        },
+      ],
+      textMustNot: ["Settings\\s*[→>-]+\\s*Bots", "设置\\s*[→>-]+\\s*Bots"],
+    },
+    maxSteps: 4,
+  },
+  {
+    id: "bot-sub-working-folder-needs-decision",
+    area: "bot-session",
+    kind: "control",
+    pattern: "sub-bot-cannot-self-escalate-folders",
+    experience:
+      "A sub-bot without access to a local folder asks MainBot via needs_decision instead of telling the user to open Settings or editing project settings itself.",
+    source: {
+      request:
+        "Sub-bots request missing working folders via needs_decision so Home confirms with the user and applies the update.",
+    },
+    setup: {
+      role: "top",
+      context: renderSubBotInstructions(
+        {
+          name: "英语教练",
+          summary: "负责英语学习与日常练习。",
+          inScope: ["英语学习", "口语与阅读练习"],
+          outOfScope: ["代码修改"],
+        },
+        [],
+      ),
+    },
+    prompt: withMessageSenderNote(
+      {
+        createdBy: "agent",
+        creationSource: "mcp",
+        senderThreadId: ThreadId.make("mainbot-home"),
+      },
+      "[Bot session] Check the study notes in /home/user/study/english and prepare a quiz. You do not have access to that folder yet. Return only the JSON receipt with status, outcome and artifacts. Do not use tools.",
+    ),
+    expect: {
+      callsMustNot: [{ tool: "t3_project_update" }, { tool: "t3_thread_send" }],
+      finalTextMust: ['"status"\\s*:\\s*"needs_decision"', "/home/user/study/english"],
+      textMustNot: ["Settings\\s*[→>-]+\\s*Bots", "设置\\s*[→>-]+\\s*Bots"],
+    },
+    maxSteps: 2,
+  },
 ];

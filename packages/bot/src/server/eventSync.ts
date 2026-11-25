@@ -7,6 +7,7 @@ import {
   BOT_WAKE_NOTIFICATION_DETAIL,
   BotSessionReceiptSchema,
   BotSubBotSpecSchema,
+  BotWorkingFoldersUpdateSchema,
   MAIN_BOT_ID,
   type BotSessionReceipt,
 } from "../contracts.ts";
@@ -16,9 +17,11 @@ import { writeFileIfChanged } from "./registry.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 import { createSubBot } from "./subBots.ts";
 import { renderSessionLog } from "./template.ts";
+import { applyBotWorkingFoldersUpdate } from "./workingFolders.ts";
 
 const decodeReceipt = Schema.decodeUnknownOption(BotSessionReceiptSchema);
 const decodeSubBotSpec = Schema.decodeUnknownOption(BotSubBotSpecSchema);
+const decodeWorkingFoldersUpdate = Schema.decodeUnknownOption(BotWorkingFoldersUpdateSchema);
 
 const MAX_HOME_RECEIPT_OUTCOME_CHARS = 240;
 const MAX_HOME_RECEIPT_ARTIFACTS = 3;
@@ -126,7 +129,13 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
   if (event.type === "run_output") {
     const receipt = decodeReceipt(event.output);
     const spec = receipt._tag === "None" ? decodeSubBotSpec(event.output) : undefined;
-    if (receipt._tag === "None" && spec?._tag !== "Some") return false;
+    const workingFoldersUpdate =
+      receipt._tag === "None" && spec?._tag !== "Some"
+        ? decodeWorkingFoldersUpdate(event.output)
+        : undefined;
+    if (receipt._tag === "None" && spec?._tag !== "Some" && workingFoldersUpdate?._tag !== "Some") {
+      return false;
+    }
 
     const session = yield* resolveBotSession(deps, event.threadId);
     if (session === null) return false;
@@ -151,24 +160,69 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
       return true;
     }
 
-    if (session.ownerId !== MAIN_BOT_ID || spec?._tag !== "Some") return false;
-    const created = yield* createSubBot(deps, spec.value).pipe(
-      Effect.map(({ bot, projectId }) => ({
-        text: `Sub-bot created: "${bot.name}" (projectId ${projectId}). ${bot.summary}`,
-      })),
+    if (session.ownerId !== MAIN_BOT_ID) return false;
+
+    if (spec?._tag === "Some") {
+      const created = yield* createSubBot(deps, spec.value).pipe(
+        Effect.map(({ bot, projectId }) => {
+          const foldersNote =
+            bot.workingFolders.length > 0
+              ? ` Working folders: ${bot.workingFolders.join(", ")}.`
+              : "";
+          return {
+            ok: true as const,
+            text: `Sub-bot created: "${bot.name}" (projectId ${projectId}). ${bot.summary}${foldersNote}`,
+          };
+        }),
+        Effect.catch((error) =>
+          Effect.succeed({
+            ok: false as const,
+            text: `Sub-bot "${spec.value.name}" was not created: ${error.message}`,
+          }),
+        ),
+      );
+      yield* deps.orchestration.sendMessage({
+        threadId: session.homeThreadId,
+        text: created.text,
+        notification: {
+          summary: session.thread.title,
+          outcome: created.ok ? "completed" : "failed",
+          detail: BOT_WAKE_NOTIFICATION_DETAIL,
+        },
+        clientRequestId: `bot:sub-bot:${event.runId}`,
+      });
+      return true;
+    }
+
+    if (workingFoldersUpdate?._tag !== "Some") return false;
+    const updated = yield* applyBotWorkingFoldersUpdate(deps, workingFoldersUpdate.value).pipe(
+      Effect.map((bot) => {
+        const folderSummary =
+          bot.workingFolders.length === 0
+            ? "Working folders: none (workspace only)."
+            : `Working folders: ${bot.workingFolders.join(", ")}.`;
+        const projectNote = bot.projectId ? `, projectId ${bot.projectId}` : "";
+        return {
+          ok: true as const,
+          text: `Working folders updated for "${bot.name}" (botId ${bot.id}${projectNote}). ${folderSummary}`,
+        };
+      }),
       Effect.catch((error) =>
-        Effect.succeed({ text: `Sub-bot "${spec.value.name}" was not created: ${error.message}` }),
+        Effect.succeed({
+          ok: false as const,
+          text: `Working folders were not updated for "${workingFoldersUpdate.value.botId}": ${error.message}`,
+        }),
       ),
     );
     yield* deps.orchestration.sendMessage({
       threadId: session.homeThreadId,
-      text: created.text,
+      text: updated.text,
       notification: {
         summary: session.thread.title,
-        outcome: "completed",
+        outcome: updated.ok ? "completed" : "failed",
         detail: BOT_WAKE_NOTIFICATION_DETAIL,
       },
-      clientRequestId: `bot:sub-bot:${event.runId}`,
+      clientRequestId: `bot:working-folders:${event.runId}`,
     });
     return true;
   }
@@ -198,6 +252,15 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
 
   const spec = decodeSubBotSpec(latest.output);
   if (spec._tag === "Some" && session.ownerId === MAIN_BOT_ID) {
+    if (latest.isLatestRun && event.status === "completed") {
+      yield* trySettleThread(deps, event.threadId, event.runId);
+      return true;
+    }
+    return false;
+  }
+
+  const workingFoldersUpdate = decodeWorkingFoldersUpdate(latest.output);
+  if (workingFoldersUpdate._tag === "Some" && session.ownerId === MAIN_BOT_ID) {
     if (latest.isLatestRun && event.status === "completed") {
       yield* trySettleThread(deps, event.threadId, event.runId);
       return true;

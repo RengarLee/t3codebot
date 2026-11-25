@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import {
   BOT_SESSION_RECEIPT_JSON_SCHEMA,
   BOT_SUB_BOT_SPEC_JSON_SCHEMA,
+  BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA,
   type BotSummary,
 } from "../contracts.ts";
 
@@ -138,42 +139,34 @@ function tableCell(value: string): string {
   return value.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
 }
 
-function renderWorkingFoldersSection(workingFolders: ReadonlyArray<string>): string {
-  if (workingFolders.length === 0) {
-    return `## Working folders
+function renderWorkingFoldersSection(options?: { readonly sessionsOnly?: boolean }): string {
+  const heading = options?.sessionsOnly ? "### Session working folders" : "## Working folders";
+  const scopePrefix = options?.sessionsOnly
+    ? "Applies only to `[Bot session]` runs in Bot's own project (Home configures folders for any bot via `## Working folder updates` below).\n\n"
+    : "";
+  return `${heading}
 
-Only your own workspace folder (\`./\`) is configured right now. Do not read or modify files
-outside it; if a task requires another folder on this machine, ask the user to add it under
-Settings → Bots (or return \`needs_decision\` with the needed folder path).`;
-  }
-
-  return `## Working folders
-
-Besides your own workspace (\`./\`), you may read and work directly in these user-configured working
-folders. Stay within them and your own workspace; if a task needs another folder, ask the user to
-add it under Settings → Bots. Deleting or overwriting important files still requires the user's
-explicit OK.
-
-${workingFolders.map((folder) => `- \`${folder}\``).join("\n")}`;
+${scopePrefix}Only access your own workspace (\`./\`) and any additional folders provided at runtime in
+\`<workspace_folders>\`. Do not read or modify files outside them; if a task requires another folder
+on this machine, finish with status \`needs_decision\` and include the exact folder path needed so
+MainBot can confirm with the user and grant access. Deleting or overwriting important files still
+requires the user's explicit OK.`;
 }
 
 /**
  * Bot's standing instructions. Providers read `AGENTS.md` (Claude reads `CLAUDE.md`) from the
  * workspace root, so every thread in Bot's project gets them without prompt plumbing.
  */
-export function renderMainBotInstructions(
-  roster: ReadonlyArray<BotSummary>,
-  workingFolders: ReadonlyArray<string> = [],
-): string {
+export function renderMainBotInstructions(roster: ReadonlyArray<BotSummary>): string {
   const rosterTable =
     roster.length === 0
       ? "No sub-bots yet."
       : [
-          "| Sub-bot | projectId | Owns | Does not take |",
-          "| --- | --- | --- | --- |",
+          "| Sub-bot | projectId | botId | Owns | Does not take |",
+          "| --- | --- | --- | --- | --- |",
           ...roster.map(
             (bot) =>
-              `| ${tableCell(bot.name)}: ${tableCell(bot.summary)} | ${bot.projectId ?? ""} | ${tableCell(bot.inScope.join("; "))} | ${tableCell(bot.outOfScope.join("; "))} |`,
+              `| ${tableCell(bot.name)}: ${tableCell(bot.summary)} | ${bot.projectId ?? ""} | ${tableCell(bot.id)} | ${tableCell(bot.inScope.join("; "))} | ${tableCell(bot.outOfScope.join("; "))} |`,
           ),
         ].join("\n");
 
@@ -198,9 +191,16 @@ ${SESSION_CONVERSATION_RULES}
 
 A "Create sub-bot" session drafts the new sub-bot's spec: a unique name, a one-sentence summary,
 3-5 kinds of work it owns split by workflow (research, coding, project tracking) rather than by
-topic, what it must not take, a short persona, and the absolute folder paths of the projects it
-may hand code work to (find them with \`t3_project_list\`; leave it empty when it does no code
-work). Write the spec in the user's language.
+topic, what it must not take, a short persona, the absolute folder paths of the projects it may
+hand code work to (find them with \`t3_project_list\`; leave it empty when it does no code work),
+and any absolute local working folder paths the user explicitly approved for it to read and work in
+directly (leave it empty when none were requested). Write the spec in the user's language.
+
+An "Update working folders" session submits the exact working folder delta (\`botId\`, \`add\`,
+\`remove\`) requested by Home so the bot server can validate and apply it. Do not read or modify
+files in that session; submit the structured output right away.
+
+${renderWorkingFoldersSection({ sessionsOnly: true })}
 
 ## Home rules
 
@@ -215,6 +215,11 @@ work). Write the spec in the user's language.
 - Route by the sub-bot roster below. When the work matches a sub-bot, pass its \`projectId\`.
   Otherwise pass no \`projectId\`, so the session runs here as a one-off right away. Never pause or
   interrupt the user to ask about creating a sub-bot before launching their request.
+- You CAN configure working folders for Bot (\`"main"\`) and any sub-bot in the roster directly via
+  \`t3_thread_launch\` (see "Working folder updates" below). Home does not need filesystem access to
+  those folders; the bot server validates and applies the path itself. Never say you cannot
+  configure folders outside your workspace and never ask the user to authorize or add working
+  folders manually.
 - After launching, say nothing more than one short line ending with the session's markdown link
   (\`link\` from \`t3_thread_launch\`). For interactive multi-turn workflows (such as language
   learning, coaching, or ongoing practice where the user will converse back and forth many times),
@@ -254,8 +259,9 @@ Sub-bots are specialists whose sessions you coordinate; the user may also talk d
   overlaps an existing sub-bot.
 - Propose it to the user in one or two lines: name, what it would own, and which reason above
   applies. Only after they agree, launch a session titled "Create sub-bot: <name>" with no
-  \`projectId\`, a "[Bot session]" message saying what the user wants it for and which folders it
-  may work on, and this \`outputSchema\` instead of the receipt one:
+  \`projectId\`, a "[Bot session]" message saying what the user wants it for, which code projects it
+  may hand work to, and which working folders the user approved, and this \`outputSchema\` instead
+  of the receipt one:
   ${JSON.stringify(BOT_SUB_BOT_SPEC_JSON_SCHEMA)}
 - A "Sub-bot created" wake arrives when it is ready. Immediately launch one small, safe self-test
   session in the new sub-bot's \`projectId\` (with the receipt \`outputSchema\`) to verify it reads
@@ -264,11 +270,35 @@ Sub-bots are specialists whose sessions you coordinate; the user may also talk d
   and report the self-test outcome once it finishes. Route matching future work to its
   \`projectId\` from then on.
 
+## Working folder updates (Home only)
+
+Only Home may grant or revoke a bot's working folders; sub-bots and sessions cannot expand their
+own access. Do not ask the user to authorize or configure folders manually; Home handles folder
+updates directly by launching an update session whose structured output the bot server validates
+and applies. Working folders are stored in bot config and synced to T3's project \`trackedFolders\`
+(injected into each session at runtime as \`<workspace_folders>\`), not written into \`AGENTS.md\`.
+To check which working folders a sub-bot currently has, call \`t3_project_read\` with its
+\`projectId\` and inspect \`trackedFolders\`.
+
+- When the user explicitly asks for Bot or a sub-bot to access or remove local folders (including
+  when they ask to create an assistant for a folder that already matches an existing sub-bot in the
+  roster below), immediately launch a session titled "Update working folders: <name>" with no
+  \`projectId\`, a "[Bot session]" message specifying the target \`botId\` (\`"main"\` for Bot
+  itself, or the sub-bot's \`botId\` from the roster below) and the exact paths to add or remove,
+  and this \`outputSchema\`:
+  ${JSON.stringify(BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA)}
+- When a session finishes with \`needs_decision\` asking for a folder that the user has not yet
+  approved, ask the user to confirm granting access to that path first. Launch the update session
+  only after the user approves.
+- When a "Working folders updated" wake arrives, immediately continue the user's pending task
+  (for example, launch the requested session in the sub-bot's \`projectId\` or follow up on the
+  waiting session with \`t3_thread_send\`).
+- When a "Working folders were not updated" wake arrives (for example, the folder does not exist on
+  this machine), report the exact validation problem to the user and ask for the corrected path.
+
 ### Roster
 
 ${rosterTable}
-
-${renderWorkingFoldersSection(workingFolders)}
 `;
 }
 
@@ -310,7 +340,6 @@ export interface BotCodeProject {
 export function renderSubBotInstructions(
   bot: Pick<BotSummary, "name" | "summary" | "inScope" | "outOfScope">,
   codeProjects: ReadonlyArray<BotCodeProject>,
-  workingFolders: ReadonlyArray<string> = [],
 ): string {
   const codeWork =
     codeProjects.length === 0
@@ -344,7 +373,7 @@ ${bulletList(bot.inScope, "Nothing listed yet.")}
 You do not take (finish with status \`blocked\` and name where it belongs):
 ${bulletList(bot.outOfScope, "Nothing listed yet.")}
 
-${renderWorkingFoldersSection(workingFolders)}
+${renderWorkingFoldersSection()}
 
 ## Code work
 

@@ -368,6 +368,242 @@ describe("bot session receipts", () => {
   );
 
   it.effect(
+    "validates workingFolders when creating a sub-bot and avoids half-created bots on invalid paths",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const stateDir = yield* fs.makeTempDirectoryScoped();
+        const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+        yield* ensureMainBotInStateDir(stateDir);
+        yield* store.upsertHome("main", { homeThreadId: "home", projectId: "p1" });
+
+        const studyDir = path.join(stateDir, "study");
+        const missingDir = path.join(stateDir, "typo-folder");
+        yield* fs.makeDirectory(studyDir, { recursive: true });
+
+        const invalidSpec = {
+          name: "Tutor",
+          summary: "Helps practice English.",
+          inScope: ["English practice"],
+          outOfScope: ["code changes"],
+          persona: "Patient language coach.",
+          projects: [],
+          workingFolders: [missingDir],
+        };
+        const validSpec = { ...invalidSpec, workingFolders: [studyDir] };
+
+        const syncedFolders: Array<{ readonly projectId: string; readonly paths: string[] }> = [];
+        const sent: Array<BotHostSendMessageInput> = [];
+        const orchestration: BotHostOrchestrationShape = {
+          ensureProject: ({ workspaceRoot }) =>
+            Effect.succeed({ projectId: `proj:${workspaceRoot}` }),
+          syncProjectFolders: ({ projectId, folders }) =>
+            Effect.sync(() => {
+              syncedFolders.push({ projectId, paths: folders.map((folder) => folder.path) });
+            }),
+          updateProjectTitle: () => Effect.void,
+          getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: "Create" }),
+          launchThread: () => Effect.die("unused"),
+          sendMessage: (input) =>
+            Effect.sync(() => {
+              sent.push(input);
+              return { threadId: input.threadId, messageId: "m", sequence: sent.length };
+            }),
+          settleThread: () => Effect.void,
+          readRunResult: (threadId, runId) =>
+            Effect.succeed({
+              threadId,
+              runId,
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              assistantText: null,
+              output: runId === "r-invalid" ? invalidSpec : validSpec,
+            }),
+          subscribeThreadEvents: () =>
+            Stream.fromIterable([
+              output("hire-bad", "r-invalid", invalidSpec),
+              output("hire-good", "r-valid", validSpec),
+            ]),
+        };
+
+        yield* Fiber.join(yield* startBotEventSyncWorker({ stateDir, store, orchestration }));
+
+        const homes = yield* store.getHomesByBot();
+        const tutor = (yield* listStateDirBots(stateDir, homes)).bots.find(
+          (bot) => bot.name === "Tutor",
+        );
+        expect(tutor?.workingFolders).toEqual([studyDir]);
+        expect(syncedFolders).toEqual([{ projectId: tutor?.projectId ?? "", paths: [studyDir] }]);
+        const tutorAgents = yield* fs.readFileString(
+          path.join(tutor?.path ?? "", "workspace", "AGENTS.md"),
+        );
+        expect(tutorAgents).toContain("<workspace_folders>");
+        expect(tutorAgents).not.toContain(studyDir);
+        const mainAgents = yield* fs.readFileString(
+          path.join(stateDir, "bots", "main", "workspace", "AGENTS.md"),
+        );
+        expect(mainAgents).toContain(`| ${tutor?.id} |`);
+        expect(mainAgents).not.toContain(studyDir);
+
+        expect(sent[0]).toMatchObject({
+          clientRequestId: "bot:sub-bot:r-invalid",
+          notification: { outcome: "failed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
+        });
+        expect(sent[0]?.text).toContain("is not an existing folder on this machine");
+        expect(sent[1]).toMatchObject({
+          clientRequestId: "bot:sub-bot:r-valid",
+          text: `Sub-bot created: "Tutor" (projectId ${tutor?.projectId}). Helps practice English. Working folders: ${studyDir}.`,
+          notification: { outcome: "completed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
+        });
+      }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
+  it.effect(
+    "applies working folder updates only from MainBot agent runs, reports validation errors, and blocks sub-bot self-escalation",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const stateDir = yield* fs.makeTempDirectoryScoped();
+        const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+        yield* ensureMainBotInStateDir(stateDir);
+        yield* store.upsertHome("main", { homeThreadId: "home", projectId: "p1" });
+
+        const tutor = yield* createBotInStateDir(stateDir, {
+          name: "英语教练",
+          summary: "Helps practice English.",
+          inScope: ["English practice"],
+        });
+        yield* store.upsertHome(tutor.id, { homeThreadId: null, projectId: "p2" });
+
+        const studyDir = path.join(stateDir, "study");
+        const rogueDir = path.join(stateDir, "rogue");
+        const missingDir = path.join(stateDir, "GoogleDrvie");
+        yield* fs.makeDirectory(studyDir, { recursive: true });
+        yield* fs.makeDirectory(rogueDir, { recursive: true });
+
+        const updatesByRun = new Map<string, { createdBy: "agent" | "user"; output: unknown }>([
+          [
+            "r-add",
+            { createdBy: "agent", output: { botId: tutor.id, add: [studyDir], remove: [] } },
+          ],
+          [
+            "r-sub-escalate",
+            { createdBy: "agent", output: { botId: tutor.id, add: [rogueDir], remove: [] } },
+          ],
+          [
+            "r-user-turn",
+            { createdBy: "user", output: { botId: tutor.id, add: [rogueDir], remove: [] } },
+          ],
+          [
+            "r-missing",
+            { createdBy: "agent", output: { botId: tutor.id, add: [missingDir], remove: [] } },
+          ],
+        ]);
+
+        const syncedFolders: Array<{ readonly projectId: string; readonly paths: string[] }> = [];
+        const sent: Array<BotHostSendMessageInput> = [];
+        const settled: Array<BotHostSettleThreadInput> = [];
+        const orchestration: BotHostOrchestrationShape = {
+          ensureProject: ({ workspaceRoot }) =>
+            Effect.succeed({
+              projectId: workspaceRoot.includes(tutor.id) ? "p2" : "p1",
+            }),
+          syncProjectFolders: ({ projectId, folders }) =>
+            Effect.sync(() => {
+              syncedFolders.push({ projectId, paths: folders.map((folder) => folder.path) });
+            }),
+          updateProjectTitle: () => Effect.void,
+          getThread: (threadId) =>
+            Effect.succeed({
+              threadId,
+              projectId: threadId === "sub-thread" ? "p2" : "p1",
+              title: `Update ${threadId}`,
+            }),
+          launchThread: () => Effect.die("unused"),
+          sendMessage: (input) =>
+            Effect.sync(() => {
+              sent.push(input);
+              return { threadId: input.threadId, messageId: "m", sequence: sent.length };
+            }),
+          settleThread: (input) =>
+            Effect.sync(() => {
+              settled.push(input);
+            }),
+          readRunResult: (threadId, runId) => {
+            const entry = updatesByRun.get(runId);
+            return Effect.succeed(
+              entry === undefined
+                ? null
+                : {
+                    threadId,
+                    runId,
+                    isLatestRun: true,
+                    status: "completed",
+                    createdBy: entry.createdBy,
+                    hasOutputSchema: true,
+                    assistantText: null,
+                    output: entry.output,
+                  },
+            );
+          },
+          subscribeThreadEvents: () =>
+            Stream.fromIterable([
+              output("update-ok", "r-add", updatesByRun.get("r-add")?.output),
+              { type: "run_status", threadId: "update-ok", runId: "r-add", status: "completed" },
+              output("sub-thread", "r-sub-escalate", updatesByRun.get("r-sub-escalate")?.output),
+              output("user-thread", "r-user-turn", updatesByRun.get("r-user-turn")?.output),
+              output("update-bad", "r-missing", updatesByRun.get("r-missing")?.output),
+              {
+                type: "run_status",
+                threadId: "update-bad",
+                runId: "r-missing",
+                status: "completed",
+              },
+            ]),
+        };
+
+        yield* Fiber.join(yield* startBotEventSyncWorker({ stateDir, store, orchestration }));
+
+        const homes = yield* store.getHomesByBot();
+        const reloaded = (yield* listStateDirBots(stateDir, homes)).bots.find(
+          (bot) => bot.id === tutor.id,
+        );
+        expect(reloaded?.workingFolders).toEqual([studyDir]);
+        expect(syncedFolders).toEqual([{ projectId: "p2", paths: [studyDir] }]);
+        expect(settled).toEqual([
+          { threadId: "update-ok", clientRequestId: "bot:settle:r-add" },
+          { threadId: "update-bad", clientRequestId: "bot:settle:r-missing" },
+        ]);
+
+        const tutorAgents = yield* fs.readFileString(
+          path.join(tutor.path, "workspace", "AGENTS.md"),
+        );
+        expect(tutorAgents).toContain("<workspace_folders>");
+        expect(tutorAgents).not.toContain(studyDir);
+        const mainAgents = yield* fs.readFileString(
+          path.join(stateDir, "bots", "main", "workspace", "AGENTS.md"),
+        );
+        expect(mainAgents).toContain(`| ${tutor.id} |`);
+        expect(mainAgents).not.toContain(studyDir);
+
+        expect(sent).toHaveLength(2);
+        expect(sent[0]).toMatchObject({
+          clientRequestId: "bot:working-folders:r-add",
+          text: `Working folders updated for "英语教练" (botId ${tutor.id}, projectId p2). Working folders: ${studyDir}.`,
+          notification: { outcome: "completed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
+        });
+        expect(sent[1]).toMatchObject({
+          clientRequestId: "bot:working-folders:r-missing",
+          notification: { outcome: "failed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
+        });
+        expect(sent[1]?.text).toContain("is not an existing folder on this machine");
+      }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
+  it.effect(
     "compresses long receipts, settles only after completion, falls back when a bot run omits output, and ignores direct user turns",
     () =>
       Effect.gen(function* () {

@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import {
   BOT_HEALTH_ROUTE,
   BOT_SESSION_RECEIPT_JSON_SCHEMA,
+  BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA,
   BotHealthResponseSchema,
   MAIN_BOT_ID,
 } from "../contracts.ts";
@@ -164,13 +165,14 @@ describe("bot server module", () => {
       expect(main.path).toBe(path.join(stateDir, "bots", MAIN_BOT_ID));
 
       const instructionsPath = path.join(main.path, "workspace", "AGENTS.md");
-      expect(yield* fs.readFileString(instructionsPath)).toContain(
-        JSON.stringify(BOT_SESSION_RECEIPT_JSON_SCHEMA),
-      );
+      const initialInstructions = yield* fs.readFileString(instructionsPath);
+      expect(initialInstructions).toContain(JSON.stringify(BOT_SESSION_RECEIPT_JSON_SCHEMA));
+      expect(initialInstructions).toContain(JSON.stringify(BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA));
+      expect(initialInstructions).not.toContain("Settings → Bots");
       expect(yield* fs.readFileString(path.join(main.path, "workspace", "CLAUDE.md"))).toBe(
         "@AGENTS.md\n",
       );
-      expect(yield* fs.readFileString(instructionsPath)).toContain("No sub-bots yet.");
+      expect(initialInstructions).toContain("No sub-bots yet.");
 
       // Bot routes only to active sub-bots that already have their own project.
       const again = yield* ensureMainBotInStateDir(
@@ -179,7 +181,7 @@ describe("bot server module", () => {
       );
       expect(again.path).toBe(main.path);
       expect(yield* fs.readFileString(instructionsPath)).toContain(
-        "| Bot: Researches upstream T3 changes. | sub-project | external research |  |",
+        `| Bot: Researches upstream T3 changes. | sub-project | ${sub.id} | external research |  |`,
       );
 
       const listed = yield* listStateDirBots(stateDir);
