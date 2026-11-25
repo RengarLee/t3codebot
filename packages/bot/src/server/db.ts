@@ -144,6 +144,24 @@ const MIGRATIONS: ReadonlyArray<Migration> = [
       DROP TABLE IF EXISTS bot_session_summaries;
     `,
   },
+  {
+    version: 5,
+    name: "session_receipt_waiting_user",
+    sql: `
+      CREATE TABLE bot_session_receipts_next (
+        thread_id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('done', 'blocked', 'needs_decision', 'waiting_user')),
+        outcome TEXT NOT NULL,
+        artifacts_json TEXT NOT NULL,
+        received_at TEXT NOT NULL
+      );
+      INSERT INTO bot_session_receipts_next SELECT * FROM bot_session_receipts;
+      DROP TABLE bot_session_receipts;
+      ALTER TABLE bot_session_receipts_next RENAME TO bot_session_receipts;
+      CREATE INDEX idx_bot_session_receipts_bot ON bot_session_receipts (bot_id, received_at DESC);
+    `,
+  },
 ];
 
 interface RawHomeRow {
