@@ -24,9 +24,9 @@ jobs:
     steps:
       - name: Create sync PR and enable merge after verification
         env:
-          GH_TOKEN: ${{ secrets.BOT_SYNC_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.DEV_SYNC_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
-          SYNC_TOKEN: ${{ secrets.BOT_SYNC_TOKEN }}
+          SYNC_TOKEN: ${{ secrets.DEV_SYNC_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -36,7 +36,7 @@ jobs:
             exit 0
           fi
           if [[ -z "$SYNC_TOKEN" ]]; then
-            echo "::error::Set BOT_SYNC_TOKEN with Contents and Pull requests write access to this repository so PR verification can run without manual approval."
+            echo "::error::Set DEV_SYNC_TOKEN with Contents and Pull requests write access to this repository so PR verification can run without manual approval."
             exit 1
           fi
 
