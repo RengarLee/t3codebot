@@ -25,6 +25,7 @@ describe("bot-check-footprint", () => {
         "2\t0\tapps/server/src/server.ts",
         "2\t0\tapps/web/src/components/Sidebar.tsx",
         "1\t1\tpackages/shared/src/cliRelease.ts",
+        "6\t0\tt3.json",
         "120\t45\tpnpm-lock.yaml",
         "25\t2\tapps/web/src/routeTree.gen.ts",
       ].join("\n"),
@@ -38,6 +39,7 @@ describe("bot-check-footprint", () => {
       "apps/server/src/server.ts",
       "apps/web/src/components/Sidebar.tsx",
       "packages/shared/src/cliRelease.ts",
+      "t3.json",
       "pnpm-lock.yaml",
       "apps/web/src/routeTree.gen.ts",
     ]);
@@ -50,6 +52,7 @@ describe("bot-check-footprint", () => {
       { path: ".github/workflows/release.yml", added: 1, deleted: 1 },
       { path: "apps/server/src/ws.ts", added: 5, deleted: 0 },
       { path: "apps/web/src/components/Sidebar.tsx", added: 25, deleted: 3 },
+      { path: "t3.json", added: 6, deleted: 1 },
     ]);
 
     expect(report.ok).toBe(false);
@@ -59,6 +62,7 @@ describe("bot-check-footprint", () => {
       [".github/workflows/release.yml", "banned"],
       ["apps/server/src/ws.ts", "unlisted"],
       ["apps/web/src/components/Sidebar.tsx", "budget_exceeded"],
+      ["t3.json", "budget_exceeded"],
     ]);
   });
 
