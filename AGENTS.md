@@ -88,6 +88,10 @@ See [00_development.md](docs/operations/00_development.md) for setup, ports, see
 
 ## Pull requests
 
+- For this fork (`RengarLee/t3codebot`), `dev` is the default development and integration branch; `main` is the stable branch.
+- Start each new feature or routine fix on a separate branch or worktree from the latest `origin/dev`. In T3 Code, use `baseRef: "origin/dev"` and `startFromOrigin: true` when creating a worktree. Do not develop directly on `dev` or `main`.
+- Target feature and routine-fix PRs at `dev` explicitly, including when an existing branch records `main` as its base. Only target `main` when explicitly asked for a stage release (`dev` into `main`) or a hotfix.
+- Keep the existing upstream-sync automation targeting `main` and the `main` into `dev` synchronization so integration work receives upstream updates and hotfixes.
 - Never make a PR unless the developer explicitly asks you to do so.
 - `origin` is not always GitHub. Check `git remote get-url origin` before your first forge command and use that forge's CLI and skill. See [Forge mirror](docs/operations/00_development.md#forge-mirror-optional).
 - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
