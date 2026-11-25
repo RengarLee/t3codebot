@@ -15,10 +15,10 @@ All bot functionality lives inside the isolated workspace package `packages/bot/
 
 ## 2. Automated Daily Upstream Nightly Sync & Windows Release Pipeline
 
-Four dedicated bot-owned workflows (none touch upstream `.github/workflows/release.yml`, `release-desktop.yml`, or `ci.yml`):
+Dedicated bot-owned workflows (none touch upstream `.github/workflows/release.yml`, `release-desktop.yml`, or `ci.yml`):
 
 1. `.github/workflows/bot-upstream-sync.yml`
-   - Polls `pingdotgg/t3code` once daily (`00:17 UTC` / `08:17 UTC+8`) for the latest published **nightly** release (`vX.Y.Z-nightly.YYYYMMDD.N`, ignoring drafts and previews).
+   - Polls `pingdotgg/t3code` once daily (`02:00 UTC` / `10:00 UTC+8`) for the latest published **nightly** release (`vX.Y.Z-nightly.YYYYMMDD.N`, ignoring drafts and previews).
    - Merges the new upstream tag into `sync/upstream-<tag>` and automatically regenerates `pnpm-lock.yaml` / `apps/web/src/routeTree.gen.ts` if only generated files conflict.
    - Runs `.github/workflows/bot-verify.yml` (footprint guard, `i18n:check`, `knip:check`, `vp check`, workspace `typecheck`, `@t3tools/bot` tests, sharded web/server/desktop tests, production web boot check, and full-stack Playwright E2E scenarios including `scripts/scenarios/bot-integration.e2e.ts` and `scripts/scenarios/replay-turn-streams.e2e.ts`).
    - Only when **every check passes** does it fast-forward `main`, cut a daily nightly tag via `scripts/bot-release-version.ts` (`v<X.Y.Z>-nightly.<YYYYMMDD>.<seq>`), and invoke `.github/workflows/bot-release.yml`.
@@ -27,6 +27,9 @@ Four dedicated bot-owned workflows (none touch upstream `.github/workflows/relea
 2. `.github/workflows/bot-release.yml` + `.github/workflows/bot-release-win.yml`
    - **Windows x64 only**: builds and verifies the Windows x64 desktop installer (NSIS `.exe` + `.blockmap`) and Windows x64 CLI archive (`t3-*.zip`), uploading them as GitHub Actions run artifacts without macOS, Linux, Windows arm64, or GitHub Release / auto-update feed publishing.
    - Manual `channel: stable` dispatches remain supported if you ever want to build a stable-versioned artifact (`v<major>.<minor>.<upstreamPatch * 100 + seq>`).
+
+3. `.github/workflows/bot-sync-dev.yml`
+   - After a push to `main`, including a verified upstream sync, merges `main` into `dev`. If Git reports conflicts, the workflow leaves `dev` untouched and opens or updates one tracking issue with the conflicting files and both commit IDs. Windows packaging runs independently.
 
 ## 3. Versioning & Release Workflow
 
@@ -46,5 +49,5 @@ Four dedicated bot-owned workflows (none touch upstream `.github/workflows/relea
 
 Everything works out of the box with standard `GITHUB_TOKEN` (unsigned builds). Optional secrets unlock signing and branch-protection pushes:
 
-- `BOT_SYNC_TOKEN` (optional PAT / GitHub App token): only needed if `main` has branch protection rules that block `GITHUB_TOKEN` from pushing verified sync commits/tags.
+- `BOT_SYNC_TOKEN` (optional PAT / GitHub App token): use a token authorized to push when branch protection on `main` or `dev` blocks sync pushes by `GITHUB_TOKEN`.
 - Windows Azure Trusted Signing (optional): secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`, `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`, `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`.

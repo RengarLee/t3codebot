@@ -2,8 +2,8 @@ name: Bot Upstream Nightly Sync
 
 on:
   schedule:
-    # Poll upstream pingdotgg/t3code nightly releases once daily (00:17 UTC / 08:17 UTC+8).
-    - cron: "17 0 * * *"
+    # Poll upstream pingdotgg/t3code nightly releases once daily (02:00 UTC / 10:00 UTC+8).
+    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       upstream_tag:
@@ -257,6 +257,7 @@ jobs:
           git checkout main
           git merge --ff-only "$SYNC_SHA"
           git push origin main
+          echo "release_sha=$SYNC_SHA" >> "$GITHUB_OUTPUT"
 
           release_date="$(date -u -d "$RUN_DATE" +%Y%m%d)"
           meta_out="$(node scripts/bot-release-version.ts \
@@ -272,9 +273,16 @@ jobs:
           git push origin "refs/tags/${tag}"
           git push origin --delete "$SYNC_BRANCH" || true
 
-          echo "release_sha=$SYNC_SHA" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  # A main push made with GITHUB_TOKEN does not trigger another push workflow.
+  sync_dev:
+    needs: promote_and_tag
+    if: ${{ !cancelled() && needs.promote_and_tag.outputs.release_sha != '' }}
+    uses: ./.github/workflows/bot-sync-dev.yml
+    secrets:
+      BOT_SYNC_TOKEN: ${{ secrets.BOT_SYNC_TOKEN }}
 
   release_nightly:
     name: Build Windows Installers & Publish Nightly Release
