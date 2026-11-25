@@ -359,6 +359,65 @@ export const SkillInboxEntrySchema = Schema.Union([
 ]);
 export type SkillInboxEntry = typeof SkillInboxEntrySchema.Type;
 
+/** Title prefix of the throwaway thread a background review runs in; event sync ignores these threads. */
+export const SKILL_REVIEW_TITLE_PREFIX = "Skill review: ";
+
+/**
+ * What a background review hands back: at most one suggestion, or null. Only the reviewed bot's own
+ * skills take part. The `_shared` skills are never reviewed, listed or suggested, so there is no scope.
+ */
+export const SkillReviewResultSchema = Schema.Struct({
+  skill: Schema.NullOr(
+    Schema.Struct({
+      action: Schema.Literals(["create", "update"]),
+      name: SkillNameSchema,
+      signal: SkillSuggestionSignalSchema,
+      message: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(600)),
+    }),
+  ),
+});
+export type SkillReviewResult = typeof SkillReviewResultSchema.Type;
+
+/** `SkillReviewResultSchema` as the JSON Schema the review thread's message passes as `outputSchema`. */
+export const SKILL_REVIEW_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["skill"],
+  properties: {
+    skill: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["action", "name", "signal", "message"],
+      properties: {
+        action: { type: "string", enum: ["create", "update"] },
+        name: {
+          type: "string",
+          description: "Folder name of the skill: lowercase words joined by hyphens.",
+        },
+        signal: { type: "string", enum: ["correction", "technique", "outdated_skill"] },
+        message: {
+          type: "string",
+          description:
+            "The lesson in one to three sentences, in the language of the user's messages.",
+        },
+      },
+    },
+  },
+} as const;
+
+/** The user's switch for background review. It only ever proposes; the user still accepts. */
+export const SkillReviewSettingsSchema = Schema.Struct({ enabled: Schema.Boolean });
+export type SkillReviewSettings = typeof SkillReviewSettingsSchema.Type;
+export const DEFAULT_SKILL_REVIEW_SETTINGS: SkillReviewSettings = { enabled: true };
+
+export const SkillReviewSettingsResponseSchema = Schema.Struct({
+  settings: SkillReviewSettingsSchema,
+});
+
+/** Reviews the bot's chats that have runs nobody reviewed yet. `queued` is how many it started. */
+export const SkillReviewNowRequestSchema = Schema.Struct({ botId: Schema.String });
+export const SkillReviewNowResponseSchema = Schema.Struct({ queued: Schema.Int });
+
 /** The one place the skill command names live; routes and the web client both read it. */
 export const BOT_SKILL_COMMANDS = {
   list: "list",
@@ -370,5 +429,8 @@ export const BOT_SKILL_COMMANDS = {
   suggestions: "suggestions",
   acceptSuggestion: "suggestions/accept",
   dismissSuggestion: "suggestions/dismiss",
+  reviewSettings: "review/settings",
+  setReviewSettings: "review/settings/set",
+  reviewNow: "review/now",
 } as const;
 export type BotSkillCommand = keyof typeof BOT_SKILL_COMMANDS;
