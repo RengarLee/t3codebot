@@ -10,7 +10,8 @@ export const BOT_WORKING_FOLDERS_ROUTE_PREFIX = `${BOT_API_PREFIX}/working-folde
 /** `POST /api/bots/profile/:botId` updates editable metadata (such as display name) for a bot. */
 export const BOT_PROFILE_ROUTE_PREFIX = `${BOT_API_PREFIX}/profile` as const;
 
-export const BOT_WORKING_FOLDERS_MAX = 128;
+/** T3 projects track at most 128 folders; two are reserved for the bot's skills folders. */
+export const BOT_WORKING_FOLDERS_MAX = 126;
 
 export const BOT_CLIENT_PREFERENCES_STORAGE_KEY = "t3codebot.clientPreferences.v1";
 

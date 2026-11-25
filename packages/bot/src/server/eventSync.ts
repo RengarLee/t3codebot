@@ -13,6 +13,7 @@ import {
 import type { BotHomeDeps } from "./home.ts";
 import type { BotHostThreadLifecycleEvent } from "./host.ts";
 import { writeFileIfChanged } from "./registry.ts";
+import { reconcileScopes } from "./skillReconciler.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 import { createSubBot } from "./subBots.ts";
 import { renderSessionLog } from "./template.ts";
@@ -116,6 +117,25 @@ const trySettleThread = Effect.fn("bot.eventSync.trySettleThread")(function* (
 });
 
 /**
+ * A run just ended in some bot's project, so the skill edits it made (to the shared folder or to
+ * its own) are now settled. Any thread counts, Home included: that is where an approved suggestion
+ * is applied. Never fails the event: the next skill command reconciles again.
+ */
+const reconcileSkillsAfterRun = Effect.fn("bot.eventSync.reconcileSkills")(function* (
+  deps: BotHomeDeps,
+  threadId: string,
+) {
+  const thread = yield* deps.orchestration.getThread(threadId);
+  if (thread === null) return;
+  const homes = yield* deps.store.getHomesByBot();
+  const owner = [...homes].find(([, home]) => home.projectId === thread.projectId);
+  if (owner === undefined) return;
+  yield* reconcileScopes(deps, [{ scope: "bot", botId: owner[0] }, { scope: "shared" }], {
+    threadId,
+  });
+});
+
+/**
  * Wakes Home on `run_output` (without settling mid-run) and handles auto-settle or missing-receipt
  * fallback once a bot-dispatched run reaches a terminal `run_status`.
  */
@@ -179,6 +199,12 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
   ) {
     return false;
   }
+
+  yield* reconcileSkillsAfterRun(deps, event.threadId).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("bot skill reconcile failed", { threadId: event.threadId, cause }),
+    ),
+  );
 
   const session = yield* resolveBotSession(deps, event.threadId);
   if (session === null) return false;

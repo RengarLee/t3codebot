@@ -9,6 +9,8 @@ import {
   BOT_HOME_ROUTE_PREFIX,
   BOT_LIST_ROUTE,
   BOT_PROFILE_ROUTE_PREFIX,
+  BOT_SKILL_COMMANDS,
+  BOT_SKILLS_ROUTE_PREFIX,
   BOT_WORKING_FOLDERS_ROUTE_PREFIX,
   BotUpdateProfileRequestSchema,
   BotUpdateWorkingFoldersRequestSchema,
@@ -19,8 +21,10 @@ import { openBotStore, type BotHome } from "./db.ts";
 import { startBotEventSyncWorker } from "./eventSync.ts";
 import { ensureBotHome, type BotHomeDeps } from "./home.ts";
 import { BotServerHost } from "./host.ts";
+import { refreshBotsForSkills } from "./instructions.ts";
 import { updateBotProfile } from "./profile.ts";
 import { ensureMainBotInStateDir, listStateDirBots } from "./registry.ts";
+import { installBuiltinSkills, runSkillCommand, type SkillCommandDeps } from "./skills.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 import { updateBotWorkingFolders } from "./workingFolders.ts";
 
@@ -59,6 +63,15 @@ function parseBotIdParam(originalUrl: string, routePrefix: string): string | nul
   return rest && !rest.includes("/") ? decodeURIComponent(rest) : null;
 }
 
+/** The `<command>` of `/api/bots/skills/<command>`; commands may hold one slash (`suggestions/accept`). */
+function parseSkillCommandParam(originalUrl: string): string | null {
+  const pathname = new URL(originalUrl, "http://localhost").pathname;
+  const prefix = `${BOT_SKILLS_ROUTE_PREFIX}/`;
+  if (!pathname.startsWith(prefix)) return null;
+  const rest = pathname.slice(prefix.length).replace(/\/+$/, "");
+  return rest ? decodeURIComponent(rest) : null;
+}
+
 const decodeUpdateWorkingFoldersRequest = Schema.decodeUnknownEffect(
   BotUpdateWorkingFoldersRequestSchema,
 );
@@ -95,6 +108,28 @@ export const botHttpRoutesLayer = Layer.unwrap(
         Effect.catchCause((cause) => Effect.logWarning("bot main bot creation failed", { cause })),
       );
     yield* ensureMainBot;
+
+    const skillDeps: SkillCommandDeps = {
+      stateDir,
+      store,
+      ...(homeDeps === null
+        ? {}
+        : {
+            orchestration: homeDeps.orchestration,
+            ensureHome: (botId: string) => homeLock.withPermits(1)(ensureBotHome(homeDeps, botId)),
+          }),
+    };
+    // The shipped skill and the Skills section reach bots made before they existed.
+    yield* installBuiltinSkills(skillDeps).pipe(
+      Effect.andThen(
+        refreshBotsForSkills({
+          stateDir,
+          store,
+          ...(host.orchestration !== undefined ? { orchestration: host.orchestration } : {}),
+        }),
+      ),
+      Effect.catchCause((cause) => Effect.logWarning("bot skills startup failed", { cause })),
+    );
 
     if (homeDeps !== null) {
       yield* startBotEventSyncWorker(homeDeps);
@@ -236,6 +271,41 @@ export const botHttpRoutesLayer = Layer.unwrap(
       ),
     );
 
-    return Layer.mergeAll(healthRoute, listBotsRoute, homeRoute, workingFoldersRoute, profileRoute);
+    // POST /api/bots/skills/<command>: skill list, history, edits, and suggestions.
+    const skillsRoute = HttpRouter.add(
+      "POST",
+      `${BOT_SKILLS_ROUTE_PREFIX}/*`,
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const command = parseSkillCommandParam(request.originalUrl);
+        if (command === null || !Object.values<string>(BOT_SKILL_COMMANDS).includes(command)) {
+          return jsonError("Unknown skill command.", 404);
+        }
+        const rawBody = yield* request.json.pipe(Effect.option);
+        if (rawBody._tag === "None") return jsonError("Invalid JSON request body.", 400);
+        yield* ensureMainBot;
+        return jsonOk(yield* runSkillCommand(skillDeps, command, rawBody.value));
+      }).pipe(
+        Effect.catchTags({
+          SkillValidationError: (error) => Effect.succeed(jsonError(error.message, 400)),
+          SkillNotFoundError: (error) => Effect.succeed(jsonError(error.message, 404)),
+          BotNotFoundError: (error) => Effect.succeed(jsonError(error.message, 404)),
+          SkillConflictError: (error) => Effect.succeed(jsonError(error.message, 409)),
+          SkillUnavailableError: (error) => Effect.succeed(jsonError(error.message, 503)),
+          BotHostError: (error) => Effect.succeed(jsonError(error.message, 502)),
+          BotCreateIoError: (error) => Effect.succeed(jsonError(error.message, 500)),
+          BotStoreError: (error) => Effect.succeed(jsonError(error.message, 500)),
+        }),
+      ),
+    );
+
+    return Layer.mergeAll(
+      healthRoute,
+      listBotsRoute,
+      homeRoute,
+      workingFoldersRoute,
+      profileRoute,
+      skillsRoute,
+    );
   }),
 );

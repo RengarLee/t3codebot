@@ -76,7 +76,14 @@ describe("bot Home", () => {
         const first = yield* ensureBotHome(deps, bot.id);
         expect([...host.projectsByRoot.keys()]).toEqual([path.join(bot.path, "workspace")]);
         expect(host.syncedFolders).toEqual([
-          { projectId: first.projectId, folders: [{ path: notesDir, name: "notes" }] },
+          {
+            projectId: first.projectId,
+            folders: [
+              { path: path.join(stateDir, "bots", "_shared", "skills"), name: "shared-skills" },
+              { path: path.join(bot.path, "skills"), name: "bot-skills" },
+              { path: notesDir, name: "notes" },
+            ],
+          },
         ]);
         expect(host.launches).toEqual([{ projectId: first.projectId, title: "总管 Home" }]);
 

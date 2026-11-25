@@ -112,15 +112,19 @@ describe("bot working folders", () => {
           [notesDir, reportsDir, notesDir],
         );
         expect(updatedMain.workingFolders).toEqual([notesDir, reportsDir]);
-        expect(host.synced).toEqual([
-          {
-            projectId: updatedMain.projectId!,
-            folders: [
-              { path: notesDir, name: "notes" },
-              { path: reportsDir, name: "reports" },
-            ],
-          },
-        ]);
+        // The project always tracks the two skill folders so the agent may write them.
+        const skillFolders = [
+          { path: path.join(stateDir, "bots", "_shared", "skills"), name: "shared-skills" },
+          { path: path.join(stateDir, "bots", MAIN_BOT_ID, "skills"), name: "bot-skills" },
+        ];
+        expect(host.synced.at(-1)).toEqual({
+          projectId: updatedMain.projectId!,
+          folders: [
+            ...skillFolders,
+            { path: notesDir, name: "notes" },
+            { path: reportsDir, name: "reports" },
+          ],
+        });
         const updatedMainAgents = yield* fs.readFileString(mainAgentsPath);
         expect(updatedMainAgents).toContain(`- \`${notesDir}\``);
         expect(updatedMainAgents).toContain(`- \`${reportsDir}\``);
@@ -160,6 +164,9 @@ describe("bot working folders", () => {
         const subAgents = yield* fs.readFileString(path.join(sub.path, "workspace", "AGENTS.md"));
         expect(subAgents).toContain(`- \`${reportsDir}\``);
         expect(subAgents).toContain(`| ${repoDir} |`);
+        expect(subAgents).toContain(path.join(stateDir, "bots", "_shared", "skills"));
+        expect(subAgents).toContain(path.join(sub.path, "skills"));
+        expect(subAgents).toContain(`your bot id is \`${sub.id}\``);
       }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 

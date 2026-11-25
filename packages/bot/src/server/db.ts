@@ -10,7 +10,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
-import type { BotHomeRecord, BotSessionReceipt } from "../contracts.ts";
+import type { BotHomeRecord, BotSessionReceipt, SkillTrigger } from "../contracts.ts";
 import { BotServerHost } from "./host.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 
@@ -19,6 +19,50 @@ export interface BotHome {
   readonly projectId: string;
   readonly homeThreadId: string | null;
 }
+
+/**
+ * One row of a skill's history. `scopeKey` is `shared` or `bot:<id>`; `content` is null when the
+ * skill was deleted at this revision (a tombstone, which has an empty `contentHash`).
+ */
+export interface SkillRevisionRecord {
+  readonly scopeKey: string;
+  readonly skill: string;
+  readonly revision: number;
+  readonly parentRevision: number | null;
+  readonly content: string | null;
+  readonly contentHash: string;
+  readonly trigger: SkillTrigger;
+  readonly reason: string;
+  readonly threadId: string | null;
+  readonly botId: string | null;
+  readonly suggestionId: string | null;
+  readonly createdAt: string;
+}
+
+export type NewSkillRevision = Omit<SkillRevisionRecord, "createdAt">;
+
+/** A revision without its content, for listing a long history cheaply. */
+export type SkillRevisionHeader = Omit<SkillRevisionRecord, "content"> & {
+  readonly deleted: boolean;
+};
+
+export type SkillSuggestionStatus = "pending" | "accepted" | "dismissed";
+
+export interface SkillSuggestionRecord {
+  readonly id: string;
+  readonly scopeKey: string;
+  readonly skill: string;
+  readonly action: "create" | "update";
+  readonly signal: "correction" | "technique" | "outdated_skill";
+  readonly message: string;
+  readonly threadId: string | null;
+  readonly botId: string;
+  readonly status: SkillSuggestionStatus;
+  readonly createdAt: string;
+  readonly decidedAt: string | null;
+}
+
+export type NewSkillSuggestion = Omit<SkillSuggestionRecord, "status" | "createdAt" | "decidedAt">;
 
 /** The validated receipt a session last handed back, keyed by its T3 thread id. */
 export interface BotSessionReceiptRecord extends BotSessionReceipt {
@@ -54,6 +98,44 @@ export interface BotStoreShape {
   readonly listSessionReceipts: (
     botId: string,
   ) => Effect.Effect<ReadonlyArray<BotSessionReceiptRecord>, BotStoreError>;
+  /** Fails when `(scopeKey, skill, revision)` already exists, so two writers cannot both claim a number. */
+  readonly insertSkillRevision: (
+    input: NewSkillRevision,
+  ) => Effect.Effect<SkillRevisionRecord, BotStoreError>;
+  readonly getSkillRevision: (
+    scopeKey: string,
+    skill: string,
+    revision: number,
+  ) => Effect.Effect<SkillRevisionRecord | null, BotStoreError>;
+  readonly latestSkillRevision: (
+    scopeKey: string,
+    skill: string,
+  ) => Effect.Effect<SkillRevisionRecord | null, BotStoreError>;
+  /** The newest revision of every skill in the scope, deleted ones included. */
+  readonly listLatestSkillRevisions: (
+    scopeKey: string,
+  ) => Effect.Effect<ReadonlyArray<SkillRevisionRecord>, BotStoreError>;
+  /** Newest first. */
+  readonly listSkillRevisions: (
+    scopeKey: string,
+    skill: string,
+  ) => Effect.Effect<ReadonlyArray<SkillRevisionHeader>, BotStoreError>;
+  /** A suggestion with this id already stored is returned as is, so re-reading an inbox file is safe. */
+  readonly insertSkillSuggestion: (
+    input: NewSkillSuggestion,
+  ) => Effect.Effect<SkillSuggestionRecord, BotStoreError>;
+  readonly getSkillSuggestion: (
+    id: string,
+  ) => Effect.Effect<SkillSuggestionRecord | null, BotStoreError>;
+  /** Newest first. */
+  readonly listSkillSuggestions: (
+    status: SkillSuggestionStatus,
+  ) => Effect.Effect<ReadonlyArray<SkillSuggestionRecord>, BotStoreError>;
+  /** Only a pending suggestion changes; any other is returned untouched. Null when unknown. */
+  readonly decideSkillSuggestion: (
+    id: string,
+    status: "accepted" | "dismissed",
+  ) => Effect.Effect<SkillSuggestionRecord | null, BotStoreError>;
 }
 
 export class BotStore extends Context.Service<BotStore, BotStoreShape>()(
@@ -162,7 +244,114 @@ const MIGRATIONS: ReadonlyArray<Migration> = [
       CREATE INDEX idx_bot_session_receipts_bot ON bot_session_receipts (bot_id, received_at DESC);
     `,
   },
+  {
+    version: 6,
+    name: "skill_revisions_and_suggestions",
+    sql: `
+      CREATE TABLE bot_skill_revisions (
+        scope_key TEXT NOT NULL,
+        skill TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        parent_revision INTEGER,
+        content TEXT,
+        content_hash TEXT NOT NULL,
+        "trigger" TEXT NOT NULL
+          CHECK ("trigger" IN ('builtin', 'user_manual', 'user_request', 'suggested', 'external')),
+        reason TEXT NOT NULL,
+        thread_id TEXT,
+        bot_id TEXT,
+        suggestion_id TEXT,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (scope_key, skill, revision)
+      );
+
+      CREATE TABLE bot_skill_suggestions (
+        id TEXT PRIMARY KEY,
+        scope_key TEXT NOT NULL,
+        skill TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('create', 'update')),
+        signal TEXT NOT NULL CHECK (signal IN ('correction', 'technique', 'outdated_skill')),
+        message TEXT NOT NULL,
+        thread_id TEXT,
+        bot_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'dismissed')),
+        created_at TEXT NOT NULL,
+        decided_at TEXT
+      );
+
+      CREATE INDEX idx_bot_skill_suggestions_status
+        ON bot_skill_suggestions (status, created_at DESC);
+    `,
+  },
 ];
+
+interface RawSkillRevisionRow {
+  readonly scope_key: string;
+  readonly skill: string;
+  readonly revision: number;
+  readonly parent_revision: number | null;
+  readonly content: string | null;
+  readonly content_hash: string;
+  readonly trigger: SkillTrigger;
+  readonly reason: string;
+  readonly thread_id: string | null;
+  readonly bot_id: string | null;
+  readonly suggestion_id: string | null;
+  readonly created_at: string;
+}
+
+interface RawSkillSuggestionRow {
+  readonly id: string;
+  readonly scope_key: string;
+  readonly skill: string;
+  readonly action: SkillSuggestionRecord["action"];
+  readonly signal: SkillSuggestionRecord["signal"];
+  readonly message: string;
+  readonly thread_id: string | null;
+  readonly bot_id: string;
+  readonly status: SkillSuggestionStatus;
+  readonly created_at: string;
+  readonly decided_at: string | null;
+}
+
+const SKILL_REVISION_COLUMNS = `scope_key, skill, revision, parent_revision, content, content_hash,
+  "trigger" AS "trigger", reason, thread_id, bot_id, suggestion_id, created_at`;
+
+const SKILL_SUGGESTION_COLUMNS = `id, scope_key, skill, action, signal, message, thread_id, bot_id,
+  status, created_at, decided_at`;
+
+function mapSkillRevisionRow(row: RawSkillRevisionRow): SkillRevisionRecord {
+  return {
+    scopeKey: row.scope_key,
+    skill: row.skill,
+    revision: row.revision,
+    parentRevision: row.parent_revision,
+    content: row.content,
+    contentHash: row.content_hash,
+    trigger: row.trigger,
+    reason: row.reason,
+    threadId: row.thread_id,
+    botId: row.bot_id,
+    suggestionId: row.suggestion_id,
+    createdAt: row.created_at,
+  };
+}
+
+function mapSkillSuggestionRow(row: RawSkillSuggestionRow): SkillSuggestionRecord {
+  return {
+    id: row.id,
+    scopeKey: row.scope_key,
+    skill: row.skill,
+    action: row.action,
+    signal: row.signal,
+    message: row.message,
+    threadId: row.thread_id,
+    botId: row.bot_id,
+    status: row.status,
+    createdAt: row.created_at,
+    decidedAt: row.decided_at,
+  };
+}
 
 interface RawHomeRow {
   readonly bot_id: string;
@@ -365,6 +554,150 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
           receivedAt: row.received_at,
         }));
       }),
+
+    insertSkillRevision: Effect.fn("bot.db.insertSkillRevision")(function* (input) {
+      const createdAt = yield* currentIsoNow;
+      return yield* tryOp("insertSkillRevision", () => {
+        db.prepare(
+          `INSERT INTO bot_skill_revisions
+             (scope_key, skill, revision, parent_revision, content, content_hash, "trigger",
+              reason, thread_id, bot_id, suggestion_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          input.scopeKey,
+          input.skill,
+          input.revision,
+          input.parentRevision,
+          input.content,
+          input.contentHash,
+          input.trigger,
+          input.reason,
+          input.threadId,
+          input.botId,
+          input.suggestionId,
+          createdAt,
+        );
+        return { ...input, createdAt } satisfies SkillRevisionRecord;
+      });
+    }),
+
+    getSkillRevision: (scopeKey, skill, revision) =>
+      tryOp("getSkillRevision", () => {
+        const row = db
+          .prepare(
+            `SELECT ${SKILL_REVISION_COLUMNS} FROM bot_skill_revisions
+              WHERE scope_key = ? AND skill = ? AND revision = ?`,
+          )
+          .get(scopeKey, skill, revision) as unknown as RawSkillRevisionRow | undefined;
+        return row ? mapSkillRevisionRow(row) : null;
+      }),
+
+    latestSkillRevision: (scopeKey, skill) =>
+      tryOp("latestSkillRevision", () => {
+        const row = db
+          .prepare(
+            `SELECT ${SKILL_REVISION_COLUMNS} FROM bot_skill_revisions
+              WHERE scope_key = ? AND skill = ?
+              ORDER BY revision DESC LIMIT 1`,
+          )
+          .get(scopeKey, skill) as unknown as RawSkillRevisionRow | undefined;
+        return row ? mapSkillRevisionRow(row) : null;
+      }),
+
+    listLatestSkillRevisions: (scopeKey) =>
+      tryOp("listLatestSkillRevisions", () => {
+        const rows = db
+          .prepare(
+            `SELECT ${SKILL_REVISION_COLUMNS} FROM bot_skill_revisions AS r
+              WHERE scope_key = ?
+                AND revision = (
+                  SELECT MAX(revision) FROM bot_skill_revisions
+                   WHERE scope_key = r.scope_key AND skill = r.skill
+                )
+              ORDER BY skill`,
+          )
+          .all(scopeKey) as unknown as ReadonlyArray<RawSkillRevisionRow>;
+        return rows.map(mapSkillRevisionRow);
+      }),
+
+    listSkillRevisions: (scopeKey, skill) =>
+      tryOp("listSkillRevisions", () => {
+        const rows = db
+          .prepare(
+            `SELECT scope_key, skill, revision, parent_revision, content_hash, "trigger" AS "trigger",
+                    reason, thread_id, bot_id, suggestion_id, created_at,
+                    content IS NULL AS deleted
+               FROM bot_skill_revisions
+              WHERE scope_key = ? AND skill = ?
+              ORDER BY revision DESC`,
+          )
+          .all(scopeKey, skill) as unknown as ReadonlyArray<
+          Omit<RawSkillRevisionRow, "content"> & { readonly deleted: number }
+        >;
+        return rows.map(({ deleted, ...row }) => {
+          const { content: _content, ...header } = mapSkillRevisionRow({ ...row, content: null });
+          return { ...header, deleted: deleted === 1 };
+        });
+      }),
+
+    insertSkillSuggestion: Effect.fn("bot.db.insertSkillSuggestion")(function* (input) {
+      const createdAt = yield* currentIsoNow;
+      return yield* tryOp("insertSkillSuggestion", () => {
+        db.prepare(
+          `INSERT OR IGNORE INTO bot_skill_suggestions
+             (id, scope_key, skill, action, signal, message, thread_id, bot_id, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+        ).run(
+          input.id,
+          input.scopeKey,
+          input.skill,
+          input.action,
+          input.signal,
+          input.message,
+          input.threadId,
+          input.botId,
+          createdAt,
+        );
+        const row = db
+          .prepare(`SELECT ${SKILL_SUGGESTION_COLUMNS} FROM bot_skill_suggestions WHERE id = ?`)
+          .get(input.id) as unknown as RawSkillSuggestionRow;
+        return mapSkillSuggestionRow(row);
+      });
+    }),
+
+    getSkillSuggestion: (id) =>
+      tryOp("getSkillSuggestion", () => {
+        const row = db
+          .prepare(`SELECT ${SKILL_SUGGESTION_COLUMNS} FROM bot_skill_suggestions WHERE id = ?`)
+          .get(id) as unknown as RawSkillSuggestionRow | undefined;
+        return row ? mapSkillSuggestionRow(row) : null;
+      }),
+
+    listSkillSuggestions: (status) =>
+      tryOp("listSkillSuggestions", () => {
+        const rows = db
+          .prepare(
+            `SELECT ${SKILL_SUGGESTION_COLUMNS} FROM bot_skill_suggestions
+              WHERE status = ?
+              ORDER BY created_at DESC, id`,
+          )
+          .all(status) as unknown as ReadonlyArray<RawSkillSuggestionRow>;
+        return rows.map(mapSkillSuggestionRow);
+      }),
+
+    decideSkillSuggestion: Effect.fn("bot.db.decideSkillSuggestion")(function* (id, status) {
+      const decidedAt = yield* currentIsoNow;
+      return yield* tryOp("decideSkillSuggestion", () => {
+        db.prepare(
+          `UPDATE bot_skill_suggestions SET status = ?, decided_at = ?
+            WHERE id = ? AND status = 'pending'`,
+        ).run(status, decidedAt, id);
+        const row = db
+          .prepare(`SELECT ${SKILL_SUGGESTION_COLUMNS} FROM bot_skill_suggestions WHERE id = ?`)
+          .get(id) as unknown as RawSkillSuggestionRow | undefined;
+        return row ? mapSkillSuggestionRow(row) : null;
+      });
+    }),
   };
 }
 

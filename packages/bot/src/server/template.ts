@@ -5,6 +5,7 @@ import {
   BOT_SUB_BOT_SPEC_JSON_SCHEMA,
   type BotSummary,
 } from "../contracts.ts";
+import type { BotSkillRoots } from "./skillRoots.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -158,12 +159,37 @@ ${workingFolders.map((folder) => `- \`${folder}\``).join("\n")}`;
 }
 
 /**
+ * Where a bot's skills live and the one rule about changing them. The bot server keeps the history
+ * of every change; the bot only reads and writes these folders.
+ */
+function renderSkillsSection(skills: BotSkillRoots, extra = ""): string {
+  return `## Skills
+
+Procedures live as \`<name>/SKILL.md\` in two folders you can read and write. Look for a matching
+skill in both before you start a task. A skill name is unique across the two.
+
+- Shared by every bot (a change reaches all of them): \`${skills.sharedDir}\`
+- Only yours (your bot id is \`${skills.botId}\`): \`${skills.ownDir}\`
+
+Skills change only with the user's OK: never create, edit, or delete one on your own. When you
+learn something worth keeping, follow the \`skill-improver\` skill in the shared folder: it says how
+to propose a change and how to apply one the user approved.${extra}`;
+}
+
+/** The Home rules forbid doing work in Home; applying a skill change the user approved is the exception. */
+const SKILL_APPROVAL_IN_HOME = `
+
+The Home rules above do not stop you from applying a skill change the user approved (in chat, or
+through a message saying the user approved a suggestion): make that edit yourself, here.`;
+
+/**
  * Bot's standing instructions. Providers read `AGENTS.md` (Claude reads `CLAUDE.md`) from the
  * workspace root, so every thread in Bot's project gets them without prompt plumbing.
  */
 export function renderMainBotInstructions(
   roster: ReadonlyArray<BotSummary>,
-  workingFolders: ReadonlyArray<string> = [],
+  workingFolders: ReadonlyArray<string>,
+  skills: BotSkillRoots,
 ): string {
   const rosterTable =
     roster.length === 0
@@ -269,6 +295,8 @@ Sub-bots are specialists whose sessions you coordinate; the user may also talk d
 ${rosterTable}
 
 ${renderWorkingFoldersSection(workingFolders)}
+
+${renderSkillsSection(skills, SKILL_APPROVAL_IN_HOME)}
 `;
 }
 
@@ -310,7 +338,8 @@ export interface BotCodeProject {
 export function renderSubBotInstructions(
   bot: Pick<BotSummary, "name" | "summary" | "inScope" | "outOfScope">,
   codeProjects: ReadonlyArray<BotCodeProject>,
-  workingFolders: ReadonlyArray<string> = [],
+  workingFolders: ReadonlyArray<string>,
+  skills: BotSkillRoots,
 ): string {
   const codeWork =
     codeProjects.length === 0
@@ -345,6 +374,8 @@ You do not take (finish with status \`blocked\` and name where it belongs):
 ${bulletList(bot.outOfScope, "Nothing listed yet.")}
 
 ${renderWorkingFoldersSection(workingFolders)}
+
+${renderSkillsSection(skills)}
 
 ## Code work
 
