@@ -1,18 +1,21 @@
 import { useBotList } from "@t3tools/bot/web/botList";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { AuthOrchestrationOperateScope, type ScopedThreadRef } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import * as ThreadUndo from "@t3tools/client-runtime/state/thread-undo";
+import * as Option from "effect/Option";
 import { useGT } from "gt-react";
 import { CheckIcon, CheckCircle2Icon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { useThreadActions } from "../../hooks/useThreadActions";
 import { cn } from "../../lib/utils";
 import { useThreadShell } from "../../state/entities";
-import { useEnvironmentHttpBaseUrl } from "../../state/environments";
-import { useEnvironmentScope } from "../../state/session";
+import { useEnvironmentScope, usePreparedConnection } from "../../state/session";
+import { threadEnvironment } from "../../state/threads";
+import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { InlineButton } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -20,7 +23,8 @@ import { isBotSessionThread } from "./useBotSessionChip";
 
 export function BotSessionFooterSettle({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const shell = useThreadShell(threadRef);
-  const bots = useBotList(useEnvironmentHttpBaseUrl(threadRef.environmentId));
+  const prepared = usePreparedConnection(threadRef.environmentId);
+  const bots = useBotList(Option.isSome(prepared) ? prepared.value.httpBaseUrl : null);
   if (!isBotSessionThread(bots, shell?.projectId, threadRef.threadId)) return null;
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-(--chat-content-max-width) items-center px-1 pb-2 text-xs text-muted-foreground">
@@ -40,14 +44,33 @@ export function ThreadSettleButton({
 }) {
   const gt = useGT();
   const canOperate = useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope);
-  const { settleThread, unsettleThread } = useThreadActions();
+  const settleThreadMutation = useOrchestrationCommand(threadEnvironment.settle, {
+    reportFailure: false,
+  });
+  const unsettleThreadMutation = useOrchestrationCommand(threadEnvironment.unsettle, {
+    reportFailure: false,
+  });
   const [pending, setPending] = useState(false);
   if (!canOperate) return null;
   const label = settled ? gt("Un-settle thread") : gt("Settle thread");
   const toggle = async () => {
     if (pending) return;
     setPending(true);
-    const result = await (settled ? unsettleThread(threadRef) : settleThread(threadRef));
+    const key = scopedThreadKey(threadRef);
+    ThreadUndo.invalidate("settle", key);
+    if (!settled) {
+      ThreadUndo.invalidate("pin", key);
+      ThreadUndo.invalidate("snooze", key);
+    }
+    const result = await (settled
+      ? unsettleThreadMutation({
+          environmentId: threadRef.environmentId,
+          input: { threadId: threadRef.threadId, reason: "user" },
+        })
+      : settleThreadMutation({
+          environmentId: threadRef.environmentId,
+          input: { threadId: threadRef.threadId },
+        }));
     setPending(false);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);

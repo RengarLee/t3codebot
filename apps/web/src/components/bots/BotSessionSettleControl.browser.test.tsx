@@ -2,17 +2,17 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({ canOperate: true, settle: vi.fn(), unsettle: vi.fn() }));
-vi.mock(import("../../hooks/useThreadActions"), async (importOriginal) => {
-  const original = await importOriginal();
-  return {
-    ...original,
-    useThreadActions: () => ({
-      ...original.useThreadActions(),
-      settleThread: state.settle,
-      unsettleThread: state.unsettle,
-    }),
-  };
-});
+vi.mock(import("../../state/threads"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  threadEnvironment: {
+    settle: { label: "settle" },
+    unsettle: { label: "unsettle" },
+  } as never,
+}));
+vi.mock(import("../../state/use-orchestration-command"), () => ({
+  useOrchestrationCommand: ((command: { label?: string }) =>
+    command.label === "unsettle" ? state.unsettle : state.settle) as never,
+}));
 vi.mock(import("../../state/session"), async (importOriginal) => ({
   ...(await importOriginal()),
   useEnvironmentScope: () => state.canOperate,
@@ -37,14 +37,20 @@ it("settles the referenced session and removes settlement without opening the li
   );
   await using screen = await render(content(false));
   await screen.getByRole("button", { name: "Settle thread" }).click();
-  expect(state.settle).toHaveBeenCalledWith(threadRef);
+  expect(state.settle).toHaveBeenCalledWith({
+    environmentId: threadRef.environmentId,
+    input: { threadId: threadRef.threadId },
+  });
   expect(open).not.toHaveBeenCalled();
   await screen.rerender(content(true));
   await expect
     .element(screen.getByRole("button", { name: "Un-settle thread" }))
     .toHaveAttribute("aria-pressed", "true");
   await screen.getByRole("button", { name: "Un-settle thread" }).click();
-  expect(state.unsettle).toHaveBeenCalledWith(threadRef);
+  expect(state.unsettle).toHaveBeenCalledWith({
+    environmentId: threadRef.environmentId,
+    input: { threadId: threadRef.threadId, reason: "user" },
+  });
   expect(open).not.toHaveBeenCalled();
 });
 
