@@ -25,8 +25,8 @@ Dedicated bot-owned workflows (none touch upstream `.github/workflows/release.ym
    - If manual merge conflicts occur, it records the details in the job summary (and opens a tracking issue when Issues are enabled); if verification/E2E fails, it opens a Draft PR and leaves `main` untouched.
 
 2. `.github/workflows/bot-release.yml` + `.github/workflows/bot-release-win.yml`
-   - **Windows x64 only**: builds and verifies the Windows x64 desktop installer (NSIS `.exe` + `.blockmap`) and Windows x64 CLI archive (`t3-*.zip`), uploading them as GitHub Actions run artifacts without macOS, Linux, Windows arm64, or GitHub Release / auto-update feed publishing.
-   - Manual `channel: stable` dispatches remain supported if you ever want to build a stable-versioned artifact (`v<major>.<minor>.<upstreamPatch * 100 + seq>`).
+   - **Windows x64 only**: builds and verifies the Windows x64 desktop installer (NSIS `.exe` + `.blockmap`) and Windows x64 CLI archive (`t3-*.zip`), publishing them to GitHub Releases after verification. Nightly releases also update the desktop auto-update feed. macOS, Linux, and Windows arm64 builds remain disabled.
+   - Manual `channel: stable` dispatches remain supported to publish a stable release (`v<major>.<minor>.<upstreamPatch * 100 + seq>`).
 
 3. `.github/workflows/bot-sync-dev-pr.yml`
    - After a successful upstream-sync run, and hourly to pick up other changes to `main`, opens or reuses a `main` → `dev` PR and enables GitHub auto-merge. It runs from the default branch (`dev`), so no workflow rollout to `main` is needed. Windows packaging runs independently.
