@@ -1,4 +1,20 @@
 import * as Schema from "effect/Schema";
+import { OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+
+export const BOT_SESSIONS_ROUTE = "/api/bots/sessions";
+export const BotSessionsRequestSchema = Schema.Struct({
+  parentThreadId: ThreadId,
+  descendants: Schema.Boolean,
+  cursor: Schema.optional(Schema.Struct({ createdAt: Schema.String, threadId: ThreadId })),
+});
+export type BotSessionsRequest = typeof BotSessionsRequestSchema.Type;
+export const BotSessionsResponseSchema = Schema.Struct({
+  sessions: Schema.Array(
+    Schema.Struct({ parentThreadId: ThreadId, thread: OrchestrationV2ThreadShell }),
+  ),
+  hasMore: Schema.Boolean,
+});
+export type BotSessionsResponse = typeof BotSessionsResponseSchema.Type;
 
 export const BOT_API_PREFIX = "/api/bots";
 export const BOT_HEALTH_ROUTE = `${BOT_API_PREFIX}/health` as const;
@@ -24,6 +40,9 @@ export type BotHealthResponse = typeof BotHealthResponseSchema.Type;
 
 export const BotClientPreferencesSchema = Schema.Struct({
   botsBarEnabled: Schema.Boolean,
+  activityMapRatio: Schema.optional(
+    Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
+  ),
 });
 export type BotClientPreferences = typeof BotClientPreferencesSchema.Type;
 

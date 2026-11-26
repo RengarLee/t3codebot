@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./web/BotSessionsPanel": {
+      "types": "./src/web/BotSessionsPanel.tsx",
+      "import": "./src/web/BotSessionsPanel.tsx"
+    },
     "./contracts": {
       "types": "./src/contracts.ts",
       "import": "./src/contracts.ts"
@@ -66,6 +70,7 @@
     "test": "vp test run --config ../../vite.config.ts --dir ."
   },
   "dependencies": {
+    "@t3tools/contracts": "workspace:*",
     "diff": "8.0.3",
     "effect": "catalog:",
     "react": "catalog:"

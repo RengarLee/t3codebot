@@ -22,6 +22,7 @@ export interface BotOverviewDropdownRow {
 
 export interface BotOverviewPanelProps {
   readonly locale: string | undefined;
+  readonly header?: ReactNode;
   /** Unsettled, non-running sessions in sidebar order. Home is left out. */
   readonly activeSessionIds: ReadonlyArray<string>;
   /** Currently executing sessions (preparing / working / waiting). */
@@ -36,6 +37,7 @@ export interface BotOverviewPanelProps {
 
 export function BotOverviewPanel({
   locale,
+  header,
   activeSessionIds,
   workingSessionIds,
   settledSessionIds,
@@ -55,6 +57,7 @@ export function BotOverviewPanel({
 
   return (
     <div className="flex flex-col p-2" data-testid="bot-overview">
+      {header}
       {activeSessionIds.length > 0 ? (
         <ProgressiveSessionList
           ids={activeSessionIds}

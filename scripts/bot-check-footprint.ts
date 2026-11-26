@@ -91,6 +91,11 @@ export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | nul
   "apps/web/src/components/chat/MessagesTimeline.logic.ts": 10,
   "apps/web/src/components/chat/ThreadDetailsPanel.tsx": 6,
   "apps/web/src/components/Sidebar.tsx": 10,
+  // Native panel registration, tab chrome, and reopening; Bot content stays in its adapter.
+  "apps/web/src/rightPanelStore.ts": 6,
+  "apps/web/src/closedViewStore.ts": 1,
+  "apps/web/src/components/RightPanelTabs.tsx": 8,
+  "apps/web/src/components/chat/RightPanelSurfaceContent.tsx": 10,
   // Bot references compose a sibling settle control without nesting a button inside a link.
   "apps/web/src/components/ThreadContextChip.tsx": 20,
   // Header and side-pane slots render the shared bot identity; lookup stays in components/bots.

@@ -42,6 +42,7 @@ describe("bot session receipts", () => {
       const settled: Array<BotHostSettleThreadInput> = [];
       let receipt = { status: "waiting_user", outcome: "Ready for practice.", artifacts: [] };
       const orchestration: BotHostOrchestrationShape = {
+        readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
         ensureProject: () => Effect.die("unused"),
         syncProjectFolders: () => Effect.void,
         updateProjectTitle: () => Effect.void,
@@ -105,6 +106,7 @@ describe("bot session receipts", () => {
         for (const owner of ["main", "tutor"]) {
           const threadId = `${owner}-session`;
           const orchestration: BotHostOrchestrationShape = {
+            readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
             ensureProject: () => Effect.die("unused"),
             syncProjectFolders: () => Effect.void,
             updateProjectTitle: () => Effect.void,
@@ -205,6 +207,7 @@ describe("bot session receipts", () => {
           ],
         ]);
         const orchestration: BotHostOrchestrationShape = {
+          readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
           ensureProject: () => Effect.die("unused"),
           syncProjectFolders: () => Effect.void,
           updateProjectTitle: () => Effect.void,
@@ -301,6 +304,7 @@ describe("bot session receipts", () => {
       const projectsByRoot = new Map<string, string>();
       const sent: Array<BotHostSendMessageInput> = [];
       const orchestration: BotHostOrchestrationShape = {
+        readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
         ensureProject: ({ workspaceRoot }) =>
           Effect.sync(() => {
             const projectId = projectsByRoot.get(workspaceRoot) ?? `project:${workspaceRoot}`;
@@ -400,6 +404,7 @@ describe("bot session receipts", () => {
         const syncedFolders: Array<{ readonly projectId: string; readonly paths: string[] }> = [];
         const sent: Array<BotHostSendMessageInput> = [];
         const orchestration: BotHostOrchestrationShape = {
+          readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
           ensureProject: ({ workspaceRoot }) =>
             Effect.succeed({ projectId: `proj:${workspaceRoot}` }),
           syncProjectFolders: ({ projectId, folders }) =>
@@ -521,6 +526,7 @@ describe("bot session receipts", () => {
         const sent: Array<BotHostSendMessageInput> = [];
         const settled: Array<BotHostSettleThreadInput> = [];
         const orchestration: BotHostOrchestrationShape = {
+          readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
           ensureProject: ({ workspaceRoot }) =>
             Effect.succeed({
               projectId: workspaceRoot.includes(tutor.id) ? "p2" : "p1",
@@ -706,6 +712,7 @@ describe("bot session receipts", () => {
         const eventsOrder: Array<string> = [];
         const sent: Array<BotHostSendMessageInput> = [];
         const orchestration: BotHostOrchestrationShape = {
+          readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
           ensureProject: () => Effect.die("unused"),
           syncProjectFolders: () => Effect.void,
           updateProjectTitle: () => Effect.void,
@@ -791,6 +798,7 @@ describe("skill review feed", () => {
       const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
       yield* store.upsertHome("main", { homeThreadId: "home", projectId: "p1" });
       const orchestration: BotHostOrchestrationShape = {
+        readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
         ensureProject: () => Effect.die("unused"),
         syncProjectFolders: () => Effect.void,
         updateProjectTitle: () => Effect.void,

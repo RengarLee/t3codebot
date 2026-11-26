@@ -4,6 +4,9 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } fr
 
 import {
   BOT_LIST_ROUTE,
+  BOT_SESSIONS_ROUTE,
+  BotSessionsResponseSchema,
+  type BotSessionsRequest,
   BOT_HOME_ROUTE_PREFIX,
   BOT_PROFILE_ROUTE_PREFIX,
   BOT_SKILL_COMMANDS,
@@ -71,6 +74,20 @@ export function subscribeBotsServerStateChanged(listener: () => void): () => voi
 function buildBotUrl(route: string, httpBaseUrl?: string | null): string {
   const base = httpBaseUrl?.trim().replace(/\/+$/, "");
   return base ? `${base}${route}` : route;
+}
+
+export function fetchBotSessions(input: BotSessionsRequest, options?: BotApiClientOptions) {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const request = yield* HttpClientRequest.post(
+        buildBotUrl(BOT_SESSIONS_ROUTE, options?.httpBaseUrl),
+      ).pipe(HttpClientRequest.bodyJson(input));
+      const response = yield* HttpClient.execute(request).pipe(
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+      );
+      return yield* HttpClientResponse.schemaBodyJson(BotSessionsResponseSchema)(response);
+    }).pipe(Effect.provide(FetchHttpClient.layer)),
+  );
 }
 
 export function fetchBotList(options?: BotApiClientOptions): Promise<BotListResponse> {

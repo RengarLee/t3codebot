@@ -29,6 +29,7 @@ function makeHost(options?: { readonly failSync?: boolean }) {
   const projectsByRoot = new Map<string, string>();
   const synced: Array<BotHostSyncProjectFoldersInput> = [];
   const orchestration: BotHostOrchestrationShape = {
+    readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
     ensureProject: ({ workspaceRoot }) =>
       Effect.sync(() => {
         const projectId = projectsByRoot.get(workspaceRoot) ?? `project:${projectsByRoot.size}`;

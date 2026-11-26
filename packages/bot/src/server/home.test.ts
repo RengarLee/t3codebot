@@ -24,6 +24,7 @@ function makeHost() {
   }> = [];
   const launches: Array<{ readonly projectId: string; readonly title: string }> = [];
   const orchestration: BotHostOrchestrationShape = {
+    readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
     ensureProject: ({ workspaceRoot }) =>
       Effect.sync(() => {
         const projectId = projectsByRoot.get(workspaceRoot) ?? `project:${projectsByRoot.size}`;
