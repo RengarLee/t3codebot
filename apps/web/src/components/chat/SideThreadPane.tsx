@@ -39,6 +39,7 @@ import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { BackgroundThreadContext } from "./backgroundThread";
+import { BotSessionIdentity } from "../bots/BotSessionIdentity";
 import { closeThreadFindIn } from "./threadFindStore";
 
 /**
@@ -196,6 +197,15 @@ export default function SideThreadPane(props: {
           >
             <XIcon />
           </Button>
+        </div>
+      ) : null}
+      {shell !== null ? (
+        <div className="flex px-3 empty:hidden">
+          <BotSessionIdentity
+            environmentId={parentRef.environmentId}
+            projectId={shell.projectId}
+            threadId={threadId}
+          />
         </div>
       ) : null}
       {renderState === "missing" ? (

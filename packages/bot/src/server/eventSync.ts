@@ -7,18 +7,24 @@ import {
   BOT_WAKE_NOTIFICATION_DETAIL,
   BotSessionReceiptSchema,
   BotSubBotSpecSchema,
+  BotWorkingFoldersUpdateSchema,
   MAIN_BOT_ID,
+  SKILL_REVIEW_TITLE_PREFIX,
   type BotSessionReceipt,
 } from "../contracts.ts";
 import type { BotHomeDeps } from "./home.ts";
 import type { BotHostThreadLifecycleEvent } from "./host.ts";
 import { writeFileIfChanged } from "./registry.ts";
+import { reconcileScopes } from "./skillReconciler.ts";
+import type { SkillReviewService } from "./skillReview.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 import { createSubBot } from "./subBots.ts";
 import { renderSessionLog } from "./template.ts";
+import { applyBotWorkingFoldersUpdate } from "./workingFolders.ts";
 
 const decodeReceipt = Schema.decodeUnknownOption(BotSessionReceiptSchema);
 const decodeSubBotSpec = Schema.decodeUnknownOption(BotSubBotSpecSchema);
+const decodeWorkingFoldersUpdate = Schema.decodeUnknownOption(BotWorkingFoldersUpdateSchema);
 
 const MAX_HOME_RECEIPT_OUTCOME_CHARS = 240;
 const MAX_HOME_RECEIPT_ARTIFACTS = 3;
@@ -79,6 +85,18 @@ const writeSessionLog = Effect.fn("bot.eventSync.writeSessionLog")(function* (de
   );
 });
 
+/** The bot whose project holds the thread, Home included; null for any other thread. */
+const resolveThreadOwner = Effect.fn("bot.eventSync.resolveThreadOwner")(function* (
+  deps: BotHomeDeps,
+  threadId: string,
+) {
+  const thread = yield* deps.orchestration.getThread(threadId);
+  if (thread === null) return null;
+  const homes = yield* deps.store.getHomesByBot();
+  const owner = [...homes].find(([, home]) => home.projectId === thread.projectId);
+  return owner === undefined ? null : owner[0];
+});
+
 const resolveBotSession = Effect.fn("bot.eventSync.resolveBotSession")(function* (
   deps: BotHomeDeps,
   threadId: string,
@@ -116,24 +134,71 @@ const trySettleThread = Effect.fn("bot.eventSync.trySettleThread")(function* (
 });
 
 /**
+ * A run just ended in some bot's project, so the skill edits it made (to the shared folder or to
+ * its own) are now settled. Any thread counts, Home included: that is where an approved suggestion
+ * is applied. Never fails the event: the next skill command reconciles again.
+ */
+const reconcileSkillsAfterRun = Effect.fn("bot.eventSync.reconcileSkills")(function* (
+  deps: BotHomeDeps,
+  threadId: string,
+) {
+  const thread = yield* deps.orchestration.getThread(threadId);
+  if (thread === null) return;
+  const homes = yield* deps.store.getHomesByBot();
+  const owner = [...homes].find(([, home]) => home.projectId === thread.projectId);
+  if (owner === undefined) return;
+  yield* reconcileScopes(deps, [{ scope: "bot", botId: owner[0] }, { scope: "shared" }], {
+    threadId,
+  });
+});
+
+/** The events that can answer or end a review thread; the others never concern it. */
+const isReviewRelevant = (event: BotHostThreadLifecycleEvent) =>
+  event.type !== "run_status" ||
+  event.status === "completed" ||
+  event.status === "failed" ||
+  event.status === "interrupted" ||
+  event.status === "cancelled";
+
+/**
  * Wakes Home on `run_output` (without settling mid-run) and handles auto-settle or missing-receipt
  * fallback once a bot-dispatched run reaches a terminal `run_status`.
  */
 export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(function* (
   deps: BotHomeDeps,
   event: BotHostThreadLifecycleEvent,
+  review?: SkillReviewService,
 ) {
+  // A background review's own thread sits in the bot's project but is nobody's session: it never
+  // reaches the receipt logic below, so it cannot wake Home or be settled as a finished task.
+  if (isReviewRelevant(event)) {
+    const thread = yield* deps.orchestration.getThread(event.threadId);
+    if (thread?.title.startsWith(SKILL_REVIEW_TITLE_PREFIX) === true) {
+      if (review !== undefined) yield* review.handleThreadEvent(event);
+      return false;
+    }
+  }
+
   if (event.type === "run_output") {
     const receipt = decodeReceipt(event.output);
     const spec = receipt._tag === "None" ? decodeSubBotSpec(event.output) : undefined;
-    if (receipt._tag === "None" && spec?._tag !== "Some") return false;
+    const workingFoldersUpdate =
+      receipt._tag === "None" && spec?._tag !== "Some"
+        ? decodeWorkingFoldersUpdate(event.output)
+        : undefined;
+    if (receipt._tag === "None" && spec?._tag !== "Some" && workingFoldersUpdate?._tag !== "Some") {
+      return false;
+    }
 
     const session = yield* resolveBotSession(deps, event.threadId);
     if (session === null) return false;
+    const run = yield* deps.orchestration.readRunResult(event.threadId, event.runId);
+    if (run?.createdBy !== "agent") return false;
 
     if (receipt._tag === "Some") {
       yield* deps.store.upsertSessionReceipt(session.ownerId, event.threadId, receipt.value);
       if (session.ownerId === MAIN_BOT_ID) yield* writeSessionLog(deps);
+      if (receipt.value.status === "waiting_user") return true;
       yield* deps.orchestration.sendMessage({
         threadId: session.homeThreadId,
         text: formatReceiptForHome(event.threadId, session.thread.title, receipt.value),
@@ -148,24 +213,69 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
       return true;
     }
 
-    if (session.ownerId !== MAIN_BOT_ID || spec?._tag !== "Some") return false;
-    const created = yield* createSubBot(deps, spec.value).pipe(
-      Effect.map(({ bot, projectId }) => ({
-        text: `Sub-bot created: "${bot.name}" (projectId ${projectId}). ${bot.summary}`,
-      })),
+    if (session.ownerId !== MAIN_BOT_ID) return false;
+
+    if (spec?._tag === "Some") {
+      const created = yield* createSubBot(deps, spec.value).pipe(
+        Effect.map(({ bot, projectId }) => {
+          const foldersNote =
+            bot.workingFolders.length > 0
+              ? ` Working folders: ${bot.workingFolders.join(", ")}.`
+              : "";
+          return {
+            ok: true as const,
+            text: `Sub-bot created: "${bot.name}" (projectId ${projectId}). ${bot.summary}${foldersNote}`,
+          };
+        }),
+        Effect.catch((error) =>
+          Effect.succeed({
+            ok: false as const,
+            text: `Sub-bot "${spec.value.name}" was not created: ${error.message}`,
+          }),
+        ),
+      );
+      yield* deps.orchestration.sendMessage({
+        threadId: session.homeThreadId,
+        text: created.text,
+        notification: {
+          summary: session.thread.title,
+          outcome: created.ok ? "completed" : "failed",
+          detail: BOT_WAKE_NOTIFICATION_DETAIL,
+        },
+        clientRequestId: `bot:sub-bot:${event.runId}`,
+      });
+      return true;
+    }
+
+    if (workingFoldersUpdate?._tag !== "Some") return false;
+    const updated = yield* applyBotWorkingFoldersUpdate(deps, workingFoldersUpdate.value).pipe(
+      Effect.map((bot) => {
+        const folderSummary =
+          bot.workingFolders.length === 0
+            ? "Working folders: none (workspace only)."
+            : `Working folders: ${bot.workingFolders.join(", ")}.`;
+        const projectNote = bot.projectId ? `, projectId ${bot.projectId}` : "";
+        return {
+          ok: true as const,
+          text: `Working folders updated for "${bot.name}" (botId ${bot.id}${projectNote}). ${folderSummary}`,
+        };
+      }),
       Effect.catch((error) =>
-        Effect.succeed({ text: `Sub-bot "${spec.value.name}" was not created: ${error.message}` }),
+        Effect.succeed({
+          ok: false as const,
+          text: `Working folders were not updated for "${workingFoldersUpdate.value.botId}": ${error.message}`,
+        }),
       ),
     );
     yield* deps.orchestration.sendMessage({
       threadId: session.homeThreadId,
-      text: created.text,
+      text: updated.text,
       notification: {
         summary: session.thread.title,
-        outcome: "completed",
+        outcome: updated.ok ? "completed" : "failed",
         detail: BOT_WAKE_NOTIFICATION_DETAIL,
       },
-      clientRequestId: `bot:sub-bot:${event.runId}`,
+      clientRequestId: `bot:working-folders:${event.runId}`,
     });
     return true;
   }
@@ -177,42 +287,61 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
     return false;
   }
 
+  yield* reconcileSkillsAfterRun(deps, event.threadId).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("bot skill reconcile failed", { threadId: event.threadId, cause }),
+    ),
+  );
+
+  if (event.status === "completed" && review !== undefined) {
+    // Home counts too: it is where the user corrects Bot most, so it holds most of the lessons.
+    const owner = yield* resolveThreadOwner(deps, event.threadId);
+    if (owner !== null) {
+      yield* review
+        .noteRunCompleted(owner, event.threadId)
+        .pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("bot skill review count failed", { threadId: event.threadId, cause }),
+          ),
+        );
+    }
+  }
+
   const session = yield* resolveBotSession(deps, event.threadId);
   if (session === null) return false;
 
-  const latest = yield* deps.orchestration.readLatestResult(event.threadId);
+  const latest = yield* deps.orchestration.readRunResult(event.threadId, event.runId);
   if (latest === null) return false;
-  if (
-    latest.latestRunId !== undefined &&
-    latest.latestRunId !== null &&
-    latest.latestRunId !== event.runId
-  ) {
-    return false;
-  }
+  if (latest.createdBy !== "agent") return false;
 
-  const receipt = decodeReceipt(latest.latestOutput);
+  const receipt = decodeReceipt(latest.output);
   if (receipt._tag === "Some") {
-    if (event.status === "completed" && receipt.value.status === "done") {
+    if (latest.isLatestRun && event.status === "completed" && receipt.value.status === "done") {
       yield* trySettleThread(deps, event.threadId, event.runId);
       return true;
     }
     return false;
   }
 
-  const spec = decodeSubBotSpec(latest.latestOutput);
+  const spec = decodeSubBotSpec(latest.output);
   if (spec._tag === "Some" && session.ownerId === MAIN_BOT_ID) {
-    if (event.status === "completed") {
+    if (latest.isLatestRun && event.status === "completed") {
       yield* trySettleThread(deps, event.threadId, event.runId);
       return true;
     }
     return false;
   }
 
-  const dispatchedByBot =
-    latest.latestRunCreatedBy === "agent" || latest.latestRunHasOutputSchema === true;
-  if (!dispatchedByBot) return false;
+  const workingFoldersUpdate = decodeWorkingFoldersUpdate(latest.output);
+  if (workingFoldersUpdate._tag === "Some" && session.ownerId === MAIN_BOT_ID) {
+    if (latest.isLatestRun && event.status === "completed") {
+      yield* trySettleThread(deps, event.threadId, event.runId);
+      return true;
+    }
+    return false;
+  }
 
-  const assistantDetail = latest.latestAssistantText?.trim() ?? "";
+  const assistantDetail = latest.assistantText?.trim() ?? "";
   if (event.status === "completed") {
     yield* deps.orchestration.sendMessage({
       threadId: session.homeThreadId,
@@ -251,10 +380,10 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
 });
 
 /** A scoped fiber, so disabling or reloading the bot module stops it. */
-export function startBotEventSyncWorker(deps: BotHomeDeps) {
+export function startBotEventSyncWorker(deps: BotHomeDeps, review?: SkillReviewService) {
   return deps.orchestration.subscribeThreadEvents().pipe(
     Stream.runForEach((event) =>
-      applyThreadLifecycleEvent(deps, event).pipe(
+      applyThreadLifecycleEvent(deps, event, review).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("bot session receipt failed", { threadId: event.threadId, cause }),
         ),

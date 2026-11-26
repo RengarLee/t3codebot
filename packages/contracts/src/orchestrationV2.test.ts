@@ -744,4 +744,10 @@ describe("withMessageSenderNote", () => {
   ] as const)("labels %j's message %j for the provider", (message, text, expected) => {
     expect(withMessageSenderNote(message, text)).toBe(expected);
   });
+
+  it("labels a person's message only in a thread an agent created", () => {
+    const user = { createdBy: "user", creationSource: "web" } as const;
+    expect(withMessageSenderNote(user, "Hi", "user")).toBe("Hi");
+    expect(withMessageSenderNote(user, "Hi", "agent")).toContain("the user is speaking directly");
+  });
 });

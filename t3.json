@@ -9,6 +9,12 @@
       "stopOnSettle": true
     },
     {
+      "name": "Update Dev & Start",
+      "command": "cmd /d /c \"git switch dev && git pull --ff-only origin dev && call pnpm exec vp i && call pnpm exec vp run dev\"",
+      "icon": "play",
+      "stopOnSettle": true
+    },
+    {
       "name": "Setup Worktree",
       "command": "node scripts/setup-worktree.ts",
       "icon": "configure",

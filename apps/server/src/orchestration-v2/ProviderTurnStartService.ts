@@ -1190,6 +1190,7 @@ export const layer: Layer.Layer<
           text: providerMessage.text,
           records: providerMessage.context?.records ?? [],
         }),
+        projection.thread.createdBy,
       );
       const slashCommand = isSlashCommandMessage(providerMessage);
       const goalDriver =

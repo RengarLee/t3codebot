@@ -645,8 +645,8 @@ const LEADING_COMMAND = /^\s*(?:\/|\p{Sc}[a-zA-Z0-9:_-]*[a-zA-Z])/u;
 
 /**
  * Who sent a message, in a line the model reads before its text, or the text unchanged when a
- * person typed it. Providers parse slash commands and skill mentions such as `$deploy` from the
- * start of a prompt, so those stay as sent.
+ * person typed it outside a thread an agent created. Providers parse slash commands and skill
+ * mentions such as `$deploy` from the start of a prompt, so those stay as sent.
  */
 export function withMessageSenderNote(
   message: {
@@ -657,6 +657,7 @@ export function withMessageSenderNote(
     readonly linkedSender?: OrchestrationV2LinkedSender | undefined;
   },
   text: string,
+  threadCreatedBy?: OrchestrationV2Actor,
 ): string {
   const agent = message.createdBy === "agent";
   const note =
@@ -668,7 +669,9 @@ export function withMessageSenderNote(
           ? `[T3 Code: scheduled task ${JSON.stringify(message.scheduledTaskId)} sent this prompt, not the user typing in this chat.]`
           : agent && message.creationSource === "mcp"
             ? "[T3 Code: this message came through T3 Code's tools, not from the user typing in this chat.]"
-            : undefined;
+            : message.createdBy === "user" && threadCreatedBy === "agent"
+              ? "[T3 Code: the user is speaking directly in this thread, even if an agent created it. Respond to the user using this request's output requirements; an earlier agent's receipt instructions do not make this an agent-to-agent turn.]"
+              : undefined;
   if (note === undefined || LEADING_COMMAND.test(text)) return text;
   return text === "" ? note : `${note}\n\n${text}`;
 }

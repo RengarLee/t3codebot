@@ -14,6 +14,7 @@ import { useBotSessionChip } from "./bots/useBotSessionChip";
 import { ContextChip, ContextChipLabel } from "./ContextChip";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ThreadChipHoverCard } from "./ThreadChipHoverCard";
+import { BotSessionChipActions } from "./bots/BotSessionSettleControl";
 import { ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { Tooltip, TooltipTrigger } from "./ui/tooltip";
 
@@ -40,7 +41,7 @@ export function ThreadContextChip(props: {
   const title = shell?.title?.trim() || metadata?.title.trim() || props.record.title;
   const navigate = useNavigate();
   const botSession = useBotSessionChip({ environmentId, threadId, projectId });
-  return (
+  const chip = (
     <Tooltip>
       <TooltipTrigger
         render={
@@ -90,5 +91,13 @@ export function ThreadContextChip(props: {
         />
       </ThreadHoverCardPopup>
     </Tooltip>
+  );
+  return (
+    <BotSessionChipActions
+      enabled={botSession !== null && !props.unreadable}
+      threadRef={{ environmentId, threadId }}
+    >
+      {chip}
+    </BotSessionChipActions>
   );
 }

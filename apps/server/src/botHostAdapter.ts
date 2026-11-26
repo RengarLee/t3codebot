@@ -3,14 +3,17 @@ import {
   BotServerHost,
   type BotHostOrchestrationShape,
   type BotHostThreadLifecycleEvent,
+  type BotHostThreadMessage,
 } from "@t3tools/bot/server/host";
 import { botHttpRoutesLayer } from "@t3tools/bot/server/http";
 import {
   CommandId,
   MessageId,
   ProjectId,
+  RunId,
   ThreadId,
   type ModelSelection,
+  type OrchestrationV2ConversationMessage,
   type OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -83,6 +86,29 @@ export function mapDomainEvent(
   return null;
 }
 
+/** The chat a person would read: user and assistant text that is finished, in thread order. */
+export function toHostThreadMessages(
+  messages: ReadonlyArray<OrchestrationV2ConversationMessage>,
+): ReadonlyArray<BotHostThreadMessage> {
+  return messages.flatMap((message) =>
+    (message.role === "user" || message.role === "assistant") &&
+    !message.streaming &&
+    message.text.trim().length > 0
+      ? [
+          {
+            id: message.id,
+            role: message.role,
+            text: message.text,
+            createdBy:
+              message.createdBy === "user" || message.createdBy === "agent"
+                ? message.createdBy
+                : null,
+          },
+        ]
+      : [],
+  );
+}
+
 const layerBotServerHostLive = Layer.effect(
   BotServerHost,
   Effect.gen(function* () {
@@ -125,6 +151,26 @@ const layerBotServerHostLive = Layer.effect(
           })
           .pipe(Effect.mapError((cause) => toHostError("ensureProject", cause)));
         return { projectId: project.id };
+      }),
+
+      syncProjectFolders: Effect.fn("botHostAdapter.syncProjectFolders")(function* (input) {
+        yield* projectService
+          .update({
+            commandId: CommandId.make(`bot:folders:${yield* random.uuidV4()}`),
+            projectId: ProjectId.make(input.projectId),
+            trackedFolders: input.folders,
+          })
+          .pipe(Effect.mapError((cause) => toHostError("syncProjectFolders", cause)));
+      }),
+
+      updateProjectTitle: Effect.fn("botHostAdapter.updateProjectTitle")(function* (input) {
+        yield* projectService
+          .update({
+            commandId: CommandId.make(`bot:rename:${yield* random.uuidV4()}`),
+            projectId: ProjectId.make(input.projectId),
+            title: input.title,
+          })
+          .pipe(Effect.mapError((cause) => toHostError("updateProjectTitle", cause)));
       }),
 
       getThread: Effect.fn("botHostAdapter.getThread")(function* (threadId) {
@@ -246,44 +292,51 @@ const layerBotServerHostLive = Layer.effect(
           .pipe(Effect.mapError((cause) => toHostError("settleThread", cause)));
       }),
 
-      readLatestResult: Effect.fn("botHostAdapter.readLatestResult")(function* (threadId) {
+      readRunResult: Effect.fn("botHostAdapter.readRunResult")(function* (threadId, runId) {
         const records = yield* projections
           .getThreadRecords(ThreadId.make(threadId), ["runs", "messages"], {
-            includeLatestRun: true,
+            runIds: [RunId.make(runId)],
+            messageRunIds: [RunId.make(runId)],
           })
           .pipe(
-            Effect.mapError((cause) => toHostError("readLatestResult", cause)),
+            Effect.mapError((cause) => toHostError("readRunResult", cause)),
             Effect.option,
           );
         if (records._tag === "None") return null;
 
-        const latestRun = records.value.runs.reduce<
-          (typeof records.value.runs)[number] | undefined
-        >(
-          (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
-          undefined,
+        const run = records.value.runs.find((run) => run.id === runId);
+        if (run === undefined) return null;
+        const latest = yield* projections
+          .getThreadRecords(ThreadId.make(threadId), ["runs"], { includeLatestRun: true })
+          .pipe(Effect.mapError((cause) => toHostError("readRunResult", cause)));
+        const runUserMessage = records.value.messages.find(
+          (message) => message.id === run.userMessageId,
         );
-        const latestRunUserMessage =
-          latestRun !== undefined
-            ? records.value.messages.find((message) => message.id === latestRun.userMessageId)
-            : undefined;
-        const latestAssistant = [...records.value.messages]
+        const assistant = [...records.value.messages]
           .reverse()
           .find((message) => message.role === "assistant" && message.text.trim().length > 0);
 
         return {
           threadId,
-          latestRunId: latestRun?.id ?? null,
-          latestRunStatus: latestRun?.status ?? null,
-          latestRunCreatedBy:
-            latestRunUserMessage?.createdBy === "user" ||
-            latestRunUserMessage?.createdBy === "agent"
-              ? latestRunUserMessage.createdBy
+          runId: run.id,
+          isLatestRun: latest.runs.every((candidate) => candidate.ordinal <= run.ordinal),
+          status: run.status,
+          createdBy:
+            runUserMessage?.createdBy === "user" || runUserMessage?.createdBy === "agent"
+              ? runUserMessage.createdBy
               : null,
-          latestRunHasOutputSchema: latestRun?.outputSchema !== undefined,
-          latestAssistantText: latestAssistant?.text ?? null,
-          latestOutput: latestRun?.output?.value ?? null,
+          hasOutputSchema: run.outputSchema !== undefined,
+          assistantText: assistant?.text ?? null,
+          output: run.output?.value ?? null,
         };
+      }),
+
+      readThreadMessages: Effect.fn("botHostAdapter.readThreadMessages")(function* (threadId) {
+        const records = yield* projections
+          .getThreadRecords(ThreadId.make(threadId), ["messages"])
+          .pipe(Effect.option);
+        if (records._tag === "None" || records.value.thread.deletedAt !== null) return null;
+        return toHostThreadMessages(records.value.messages);
       }),
 
       subscribeThreadEvents: () =>

@@ -24,6 +24,21 @@ export interface BotHostEnsureProjectInput {
   readonly title: string;
 }
 
+export interface BotHostTrackedFolder {
+  readonly path: string;
+  readonly name: string;
+}
+
+export interface BotHostSyncProjectFoldersInput {
+  readonly projectId: string;
+  readonly folders: ReadonlyArray<BotHostTrackedFolder>;
+}
+
+export interface BotHostUpdateProjectTitleInput {
+  readonly projectId: string;
+  readonly title: string;
+}
+
 export interface BotHostThreadInfo {
   readonly threadId: string;
   readonly projectId: string;
@@ -76,14 +91,24 @@ export interface BotHostSendMessageResult {
   readonly sequence: number;
 }
 
-export interface BotHostThreadLatestResult {
+export interface BotHostThreadRunResult {
   readonly threadId: string;
-  readonly latestRunId?: string | null | undefined;
-  readonly latestRunStatus: string | null;
-  readonly latestRunCreatedBy?: "user" | "agent" | null | undefined;
-  readonly latestRunHasOutputSchema?: boolean | undefined;
-  readonly latestAssistantText: string | null;
-  readonly latestOutput: unknown | null;
+  readonly runId: string;
+  readonly isLatestRun: boolean;
+  readonly status: string | null;
+  readonly createdBy?: "user" | "agent" | null | undefined;
+  readonly hasOutputSchema?: boolean | undefined;
+  readonly assistantText: string | null;
+  readonly output: unknown | null;
+}
+
+/** One message of a thread's conversation, in the order the thread shows them. */
+export interface BotHostThreadMessage {
+  readonly id: string;
+  readonly role: "user" | "assistant";
+  readonly text: string;
+  /** Who wrote it: the person, an agent (a dispatched task, say), or unknown. */
+  readonly createdBy: "user" | "agent" | null;
 }
 
 export type BotHostThreadLifecycleEvent =
@@ -116,6 +141,14 @@ export interface BotHostOrchestrationShape {
   readonly ensureProject: (
     input: BotHostEnsureProjectInput,
   ) => Effect.Effect<{ readonly projectId: string }, BotHostError>;
+  /** Replaces the project's user-added tracked folders so sandboxes grant those roots. */
+  readonly syncProjectFolders: (
+    input: BotHostSyncProjectFoldersInput,
+  ) => Effect.Effect<void, BotHostError>;
+  /** Updates the T3 project title when a bot is renamed. */
+  readonly updateProjectTitle: (
+    input: BotHostUpdateProjectTitleInput,
+  ) => Effect.Effect<void, BotHostError>;
   /** Null when the thread is unknown or deleted. */
   readonly getThread: (threadId: string) => Effect.Effect<BotHostThreadInfo | null, BotHostError>;
   readonly launchThread: (
@@ -125,9 +158,14 @@ export interface BotHostOrchestrationShape {
     input: BotHostSendMessageInput,
   ) => Effect.Effect<BotHostSendMessageResult, BotHostError>;
   readonly settleThread: (input: BotHostSettleThreadInput) => Effect.Effect<void, BotHostError>;
-  readonly readLatestResult: (
+  readonly readRunResult: (
     threadId: string,
-  ) => Effect.Effect<BotHostThreadLatestResult | null, BotHostError>;
+    runId: string,
+  ) => Effect.Effect<BotHostThreadRunResult | null, BotHostError>;
+  /** The thread's conversation in order, or null when the thread is unknown or deleted. */
+  readonly readThreadMessages: (
+    threadId: string,
+  ) => Effect.Effect<ReadonlyArray<BotHostThreadMessage> | null, BotHostError>;
   readonly subscribeThreadEvents: () => Stream.Stream<BotHostThreadLifecycleEvent, BotHostError>;
 }
 

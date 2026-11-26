@@ -39,6 +39,7 @@ import * as McpSchema from "effect/ai/McpSchema";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
+import { botSessionCases } from "./botSessionCases.ts";
 import * as McpInvocationContext from "../../apps/server/src/mcp/McpInvocationContext.ts";
 import { advertisedJsonSchema } from "../../apps/server/src/mcp/advertisedJsonSchema.ts";
 import * as Contracts from "@t3tools/contracts";
@@ -3237,6 +3238,7 @@ const main = Effect.gen(function* () {
       .toSorted()
       .map((name) => path.join(casesDir, name));
   const cases = (yield* Effect.forEach(caseFiles, (file) => readNdjson(file, decodeCase))).flat();
+  if (flags.cases === undefined) cases.push(...botSessionCases);
   const wanted = flags.case?.flatMap((ids) => ids.split(","));
   const codex = isCodex(flags.model);
   const harness = codex ? "codex" : "claude";

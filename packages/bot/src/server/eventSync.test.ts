@@ -10,14 +10,14 @@ import * as Stream from "effect/Stream";
 
 import { BOT_WAKE_NOTIFICATION_DETAIL } from "../contracts.ts";
 import { openBotStore } from "./db.ts";
-import { startBotEventSyncWorker } from "./eventSync.ts";
+import { applyThreadLifecycleEvent, startBotEventSyncWorker } from "./eventSync.ts";
 import { createBotInStateDir, ensureMainBotInStateDir, listStateDirBots } from "./registry.ts";
 import {
   BotHostError,
   type BotHostOrchestrationShape,
   type BotHostSendMessageInput,
   type BotHostSettleThreadInput,
-  type BotHostThreadLatestResult,
+  type BotHostThreadRunResult,
   type BotHostThreadLifecycleEvent,
 } from "./host.ts";
 
@@ -31,6 +31,131 @@ const output = (threadId: string, runId: string, value: unknown): BotHostThreadL
 });
 
 describe("bot session receipts", () => {
+  it.effect("keeps interactive readiness in the session and wakes Home for a later decision", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fs.makeTempDirectoryScoped();
+      const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+      yield* store.upsertHome("main", { homeThreadId: "home", projectId: "p1" });
+      const sent: Array<BotHostSendMessageInput> = [];
+      const settled: Array<BotHostSettleThreadInput> = [];
+      let receipt = { status: "waiting_user", outcome: "Ready for practice.", artifacts: [] };
+      const orchestration: BotHostOrchestrationShape = {
+        ensureProject: () => Effect.die("unused"),
+        syncProjectFolders: () => Effect.void,
+        updateProjectTitle: () => Effect.void,
+        getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: "Practice" }),
+        launchThread: () => Effect.die("unused"),
+        sendMessage: (input) =>
+          Effect.sync(() => {
+            sent.push(input);
+            return { threadId: input.threadId, messageId: "m", sequence: sent.length };
+          }),
+        settleThread: (input) =>
+          Effect.sync(() => {
+            settled.push(input);
+          }),
+        readRunResult: (threadId, runId) =>
+          Effect.succeed({
+            threadId,
+            runId,
+            isLatestRun: true,
+            status: "completed",
+            createdBy: "agent",
+            hasOutputSchema: true,
+            assistantText: receipt.outcome,
+            output: receipt,
+          }),
+        readThreadMessages: () => Effect.succeed(null),
+        subscribeThreadEvents: () => Stream.empty,
+      };
+      const deps = { stateDir, store, orchestration };
+      yield* applyThreadLifecycleEvent(deps, output("practice", "setup", receipt));
+      yield* applyThreadLifecycleEvent(deps, {
+        type: "run_status",
+        threadId: "practice",
+        runId: "setup",
+        status: "completed",
+      });
+      expect(yield* store.listSessionReceipts("main")).toMatchObject([
+        { threadId: "practice", status: "waiting_user" },
+      ]);
+      expect(sent).toEqual([]);
+      expect(settled).toEqual([]);
+      receipt = { status: "needs_decision", outcome: "Approve a paid course?", artifacts: [] };
+      yield* applyThreadLifecycleEvent(deps, output("practice", "decision", receipt));
+      expect(sent.map((message) => message.clientRequestId)).toEqual(["bot:receipt:decision"]);
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
+  it.effect(
+    "routes alternating senders by run in both bot projects without settling a newer conversation",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const stateDir = yield* fs.makeTempDirectoryScoped();
+        const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+        yield* store.upsertHome("main", { homeThreadId: "home", projectId: "main-project" });
+        yield* store.upsertHome("tutor", { homeThreadId: null, projectId: "tutor-project" });
+        const sent: Array<BotHostSendMessageInput> = [];
+        const settled: Array<BotHostSettleThreadInput> = [];
+        const receipt = { status: "done", outcome: "Answer", artifacts: [] };
+        for (const owner of ["main", "tutor"]) {
+          const threadId = `${owner}-session`;
+          const orchestration: BotHostOrchestrationShape = {
+            ensureProject: () => Effect.die("unused"),
+            syncProjectFolders: () => Effect.void,
+            updateProjectTitle: () => Effect.void,
+            getThread: () =>
+              Effect.succeed({ threadId, projectId: `${owner}-project`, title: "Practice" }),
+            launchThread: () => Effect.die("unused"),
+            sendMessage: (input) =>
+              Effect.sync(() => {
+                sent.push(input);
+                return { threadId: input.threadId, messageId: "m", sequence: sent.length };
+              }),
+            settleThread: (input) =>
+              Effect.sync(() => {
+                settled.push(input);
+              }),
+            readRunResult: (requestedThread, runId) =>
+              Effect.succeed({
+                threadId: requestedThread,
+                runId,
+                isLatestRun: runId === "user-new",
+                status: "completed",
+                createdBy: runId === "bot-old" ? "agent" : "user",
+                hasOutputSchema: true,
+                assistantText: "Answer",
+                output: receipt,
+              }),
+            readThreadMessages: () => Effect.succeed(null),
+            subscribeThreadEvents: () => Stream.empty,
+          };
+          const deps = { stateDir, store, orchestration };
+          for (const runId of ["user-old", "bot-old", "user-new"]) {
+            yield* applyThreadLifecycleEvent(deps, output(threadId, runId, receipt));
+            yield* applyThreadLifecycleEvent(deps, {
+              type: "run_status",
+              threadId,
+              runId,
+              status: "completed",
+            });
+          }
+          expect((yield* store.listSessionReceipts(owner)).map((entry) => entry.threadId)).toEqual([
+            threadId,
+          ]);
+        }
+        expect(sent.map((entry) => entry.clientRequestId)).toEqual([
+          "bot:receipt:bot-old",
+          "bot:receipt:bot-old",
+        ]);
+        expect(settled).toEqual([]);
+      }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
   it.effect(
     "records only valid receipts from bot sessions and passes each to the main Home once",
     () =>
@@ -51,34 +176,38 @@ describe("bot session receipts", () => {
         };
         const sent: Array<BotHostSendMessageInput> = [];
         const settled: Array<BotHostSettleThreadInput> = [];
-        const latestByThread = new Map<string, BotHostThreadLatestResult>([
+        const resultsByThread = new Map<string, BotHostThreadRunResult>([
           [
             "fix",
             {
               threadId: "fix",
-              latestRunId: "r1",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: true,
-              latestAssistantText: "Fixed the parser.",
-              latestOutput: receipt,
+              runId: "r1",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              hasOutputSchema: true,
+              assistantText: "Fixed the parser.",
+              output: receipt,
             },
           ],
           [
             "survey",
             {
               threadId: "survey",
-              latestRunId: "r5",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: true,
-              latestAssistantText: "Choose between option A and B.",
-              latestOutput: needsDecision,
+              runId: "r5",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              hasOutputSchema: true,
+              assistantText: "Choose between option A and B.",
+              output: needsDecision,
             },
           ],
         ]);
         const orchestration: BotHostOrchestrationShape = {
           ensureProject: () => Effect.die("unused"),
+          syncProjectFolders: () => Effect.void,
+          updateProjectTitle: () => Effect.void,
           getThread: (threadId) =>
             Effect.succeed({
               threadId,
@@ -95,7 +224,8 @@ describe("bot session receipts", () => {
             Effect.sync(() => {
               settled.push(input);
             }),
-          readLatestResult: (threadId) => Effect.succeed(latestByThread.get(threadId) ?? null),
+          readRunResult: (threadId) => Effect.succeed(resultsByThread.get(threadId) ?? null),
+          readThreadMessages: () => Effect.succeed(null),
           subscribeThreadEvents: () =>
             Stream.fromIterable([
               output("fix", "r1", receipt),
@@ -177,6 +307,8 @@ describe("bot session receipts", () => {
             projectsByRoot.set(workspaceRoot, projectId);
             return { projectId };
           }),
+        syncProjectFolders: () => Effect.void,
+        updateProjectTitle: () => Effect.void,
         getThread: (threadId) =>
           Effect.succeed({ threadId, projectId: threadId === "in-sub" ? "p2" : "p1", title: "t" }),
         launchThread: () => Effect.die("unused"),
@@ -186,7 +318,17 @@ describe("bot session receipts", () => {
             return { threadId: input.threadId, messageId: "m", sequence: sent.length };
           }),
         settleThread: () => Effect.void,
-        readLatestResult: () => Effect.succeed(null),
+        readRunResult: (threadId, runId) =>
+          Effect.succeed({
+            threadId,
+            runId,
+            isLatestRun: true,
+            status: "completed",
+            createdBy: "agent",
+            assistantText: null,
+            output: spec,
+          }),
+        readThreadMessages: () => Effect.succeed(null),
         subscribeThreadEvents: () =>
           Stream.fromIterable([
             output("hire", "r1", spec),
@@ -230,6 +372,262 @@ describe("bot session receipts", () => {
   );
 
   it.effect(
+    "validates workingFolders when creating a sub-bot and avoids half-created bots on invalid paths",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const stateDir = yield* fs.makeTempDirectoryScoped();
+        const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+        yield* ensureMainBotInStateDir(stateDir);
+        yield* store.upsertHome("main", { homeThreadId: "home", projectId: "p1" });
+
+        const studyDir = path.join(stateDir, "study");
+        const missingDir = path.join(stateDir, "typo-folder");
+        yield* fs.makeDirectory(studyDir, { recursive: true });
+
+        const invalidSpec = {
+          name: "Tutor",
+          summary: "Helps practice English.",
+          inScope: ["English practice"],
+          outOfScope: ["code changes"],
+          persona: "Patient language coach.",
+          projects: [],
+          workingFolders: [missingDir],
+        };
+        const validSpec = { ...invalidSpec, workingFolders: [studyDir] };
+
+        const syncedFolders: Array<{ readonly projectId: string; readonly paths: string[] }> = [];
+        const sent: Array<BotHostSendMessageInput> = [];
+        const orchestration: BotHostOrchestrationShape = {
+          ensureProject: ({ workspaceRoot }) =>
+            Effect.succeed({ projectId: `proj:${workspaceRoot}` }),
+          syncProjectFolders: ({ projectId, folders }) =>
+            Effect.sync(() => {
+              syncedFolders.push({ projectId, paths: folders.map((folder) => folder.path) });
+            }),
+          updateProjectTitle: () => Effect.void,
+          readThreadMessages: () => Effect.succeed(null),
+          getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: "Create" }),
+          launchThread: () => Effect.die("unused"),
+          sendMessage: (input) =>
+            Effect.sync(() => {
+              sent.push(input);
+              return { threadId: input.threadId, messageId: "m", sequence: sent.length };
+            }),
+          settleThread: () => Effect.void,
+          readRunResult: (threadId, runId) =>
+            Effect.succeed({
+              threadId,
+              runId,
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              assistantText: null,
+              output: runId === "r-invalid" ? invalidSpec : validSpec,
+            }),
+          subscribeThreadEvents: () =>
+            Stream.fromIterable([
+              output("hire-bad", "r-invalid", invalidSpec),
+              output("hire-good", "r-valid", validSpec),
+            ]),
+        };
+
+        yield* Fiber.join(yield* startBotEventSyncWorker({ stateDir, store, orchestration }));
+
+        const homes = yield* store.getHomesByBot();
+        const tutor = (yield* listStateDirBots(stateDir, homes)).bots.find(
+          (bot) => bot.name === "Tutor",
+        );
+        expect(tutor?.workingFolders).toEqual([studyDir]);
+        expect(syncedFolders).toEqual([
+          {
+            projectId: tutor?.projectId ?? "",
+            paths: [
+              path.join(stateDir, "bots", "_shared", "skills"),
+              path.join(tutor?.path ?? "", "skills"),
+              studyDir,
+            ],
+          },
+        ]);
+        const tutorAgents = yield* fs.readFileString(
+          path.join(tutor?.path ?? "", "workspace", "AGENTS.md"),
+        );
+        expect(tutorAgents).toContain("<workspace_folders>");
+        expect(tutorAgents).not.toContain(studyDir);
+        const mainAgents = yield* fs.readFileString(
+          path.join(stateDir, "bots", "main", "workspace", "AGENTS.md"),
+        );
+        expect(mainAgents).toContain(`| ${tutor?.id} |`);
+        expect(mainAgents).not.toContain(studyDir);
+
+        expect(sent[0]).toMatchObject({
+          clientRequestId: "bot:sub-bot:r-invalid",
+          notification: { outcome: "failed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
+        });
+        expect(sent[0]?.text).toContain("is not an existing folder on this machine");
+        expect(sent[1]).toMatchObject({
+          clientRequestId: "bot:sub-bot:r-valid",
+          text: `Sub-bot created: "Tutor" (projectId ${tutor?.projectId}). Helps practice English. Working folders: ${studyDir}.`,
+          notification: { outcome: "completed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
+        });
+      }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
+  it.effect(
+    "applies working folder updates only from MainBot agent runs, reports validation errors, and blocks sub-bot self-escalation",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const stateDir = yield* fs.makeTempDirectoryScoped();
+        const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+        yield* ensureMainBotInStateDir(stateDir);
+        yield* store.upsertHome("main", { homeThreadId: "home", projectId: "p1" });
+
+        const tutor = yield* createBotInStateDir(stateDir, {
+          name: "英语教练",
+          summary: "Helps practice English.",
+          inScope: ["English practice"],
+        });
+        yield* store.upsertHome(tutor.id, { homeThreadId: null, projectId: "p2" });
+
+        const studyDir = path.join(stateDir, "study");
+        const rogueDir = path.join(stateDir, "rogue");
+        const missingDir = path.join(stateDir, "GoogleDrvie");
+        yield* fs.makeDirectory(studyDir, { recursive: true });
+        yield* fs.makeDirectory(rogueDir, { recursive: true });
+
+        const updatesByRun = new Map<string, { createdBy: "agent" | "user"; output: unknown }>([
+          [
+            "r-add",
+            { createdBy: "agent", output: { botId: tutor.id, add: [studyDir], remove: [] } },
+          ],
+          [
+            "r-sub-escalate",
+            { createdBy: "agent", output: { botId: tutor.id, add: [rogueDir], remove: [] } },
+          ],
+          [
+            "r-user-turn",
+            { createdBy: "user", output: { botId: tutor.id, add: [rogueDir], remove: [] } },
+          ],
+          [
+            "r-missing",
+            { createdBy: "agent", output: { botId: tutor.id, add: [missingDir], remove: [] } },
+          ],
+        ]);
+
+        const syncedFolders: Array<{ readonly projectId: string; readonly paths: string[] }> = [];
+        const sent: Array<BotHostSendMessageInput> = [];
+        const settled: Array<BotHostSettleThreadInput> = [];
+        const orchestration: BotHostOrchestrationShape = {
+          ensureProject: ({ workspaceRoot }) =>
+            Effect.succeed({
+              projectId: workspaceRoot.includes(tutor.id) ? "p2" : "p1",
+            }),
+          syncProjectFolders: ({ projectId, folders }) =>
+            Effect.sync(() => {
+              syncedFolders.push({ projectId, paths: folders.map((folder) => folder.path) });
+            }),
+          updateProjectTitle: () => Effect.void,
+          readThreadMessages: () => Effect.succeed(null),
+          getThread: (threadId) =>
+            Effect.succeed({
+              threadId,
+              projectId: threadId === "sub-thread" ? "p2" : "p1",
+              title: `Update ${threadId}`,
+            }),
+          launchThread: () => Effect.die("unused"),
+          sendMessage: (input) =>
+            Effect.sync(() => {
+              sent.push(input);
+              return { threadId: input.threadId, messageId: "m", sequence: sent.length };
+            }),
+          settleThread: (input) =>
+            Effect.sync(() => {
+              settled.push(input);
+            }),
+          readRunResult: (threadId, runId) => {
+            const entry = updatesByRun.get(runId);
+            return Effect.succeed(
+              entry === undefined
+                ? null
+                : {
+                    threadId,
+                    runId,
+                    isLatestRun: true,
+                    status: "completed",
+                    createdBy: entry.createdBy,
+                    hasOutputSchema: true,
+                    assistantText: null,
+                    output: entry.output,
+                  },
+            );
+          },
+          subscribeThreadEvents: () =>
+            Stream.fromIterable([
+              output("update-ok", "r-add", updatesByRun.get("r-add")?.output),
+              { type: "run_status", threadId: "update-ok", runId: "r-add", status: "completed" },
+              output("sub-thread", "r-sub-escalate", updatesByRun.get("r-sub-escalate")?.output),
+              output("user-thread", "r-user-turn", updatesByRun.get("r-user-turn")?.output),
+              output("update-bad", "r-missing", updatesByRun.get("r-missing")?.output),
+              {
+                type: "run_status",
+                threadId: "update-bad",
+                runId: "r-missing",
+                status: "completed",
+              },
+            ]),
+        };
+
+        yield* Fiber.join(yield* startBotEventSyncWorker({ stateDir, store, orchestration }));
+
+        const homes = yield* store.getHomesByBot();
+        const reloaded = (yield* listStateDirBots(stateDir, homes)).bots.find(
+          (bot) => bot.id === tutor.id,
+        );
+        expect(reloaded?.workingFolders).toEqual([studyDir]);
+        expect(syncedFolders).toEqual([
+          {
+            projectId: "p2",
+            paths: [
+              path.join(stateDir, "bots", "_shared", "skills"),
+              path.join(tutor.path, "skills"),
+              studyDir,
+            ],
+          },
+        ]);
+        expect(settled).toEqual([
+          { threadId: "update-ok", clientRequestId: "bot:settle:r-add" },
+          { threadId: "update-bad", clientRequestId: "bot:settle:r-missing" },
+        ]);
+
+        const tutorAgents = yield* fs.readFileString(
+          path.join(tutor.path, "workspace", "AGENTS.md"),
+        );
+        expect(tutorAgents).toContain("<workspace_folders>");
+        expect(tutorAgents).not.toContain(studyDir);
+        const mainAgents = yield* fs.readFileString(
+          path.join(stateDir, "bots", "main", "workspace", "AGENTS.md"),
+        );
+        expect(mainAgents).toContain(`| ${tutor.id} |`);
+        expect(mainAgents).not.toContain(studyDir);
+
+        expect(sent).toHaveLength(2);
+        expect(sent[0]).toMatchObject({
+          clientRequestId: "bot:working-folders:r-add",
+          text: `Working folders updated for "英语教练" (botId ${tutor.id}, projectId p2). Working folders: ${studyDir}.`,
+          notification: { outcome: "completed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
+        });
+        expect(sent[1]).toMatchObject({
+          clientRequestId: "bot:working-folders:r-missing",
+          notification: { outcome: "failed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
+        });
+        expect(sent[1]?.text).toContain("is not an existing folder on this machine");
+      }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+
+  it.effect(
     "compresses long receipts, settles only after completion, falls back when a bot run omits output, and ignores direct user turns",
     () =>
       Effect.gen(function* () {
@@ -250,53 +648,57 @@ describe("bot session receipts", () => {
             "src/b.ts",
           ],
         };
-        const latestByThread = new Map<string, BotHostThreadLatestResult>([
+        const resultsByThread = new Map<string, BotHostThreadRunResult>([
           [
             "report",
             {
               threadId: "report",
-              latestRunId: "r-report",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: true,
-              latestAssistantText: "Full weekly report...",
-              latestOutput: longReceipt,
+              runId: "r-report",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              hasOutputSchema: true,
+              assistantText: "Full weekly report...",
+              output: longReceipt,
             },
           ],
           [
             "forgot-receipt",
             {
               threadId: "forgot-receipt",
-              latestRunId: "r-forgot",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: true,
-              latestAssistantText: "Finished checking upstream PRs without calling submit output.",
-              latestOutput: null,
+              runId: "r-forgot",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "agent",
+              hasOutputSchema: true,
+              assistantText: "Finished checking upstream PRs without calling submit output.",
+              output: null,
             },
           ],
           [
             "crashed",
             {
               threadId: "crashed",
-              latestRunId: "r-crashed",
-              latestRunStatus: "failed",
-              latestRunCreatedBy: "agent",
-              latestRunHasOutputSchema: false,
-              latestAssistantText: "Rate limit exceeded.",
-              latestOutput: null,
+              runId: "r-crashed",
+              isLatestRun: true,
+              status: "failed",
+              createdBy: "agent",
+              hasOutputSchema: false,
+              assistantText: "Rate limit exceeded.",
+              output: null,
             },
           ],
           [
             "english-practice",
             {
               threadId: "english-practice",
-              latestRunId: "r-user-turn",
-              latestRunStatus: "completed",
-              latestRunCreatedBy: "user",
-              latestRunHasOutputSchema: false,
-              latestAssistantText: "Great pronunciation! Try the next sentence.",
-              latestOutput: null,
+              runId: "r-user-turn",
+              isLatestRun: true,
+              status: "completed",
+              createdBy: "user",
+              hasOutputSchema: true,
+              assistantText: "Great pronunciation! Try the next sentence.",
+              output: { status: "done", outcome: "Direct answer", artifacts: [] },
             },
           ],
         ]);
@@ -305,6 +707,8 @@ describe("bot session receipts", () => {
         const sent: Array<BotHostSendMessageInput> = [];
         const orchestration: BotHostOrchestrationShape = {
           ensureProject: () => Effect.die("unused"),
+          syncProjectFolders: () => Effect.void,
+          updateProjectTitle: () => Effect.void,
           getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: threadId }),
           launchThread: () => Effect.die("unused"),
           sendMessage: (input) =>
@@ -321,7 +725,8 @@ describe("bot session receipts", () => {
                 detail: "simulated settle failure",
               });
             }),
-          readLatestResult: (threadId) => Effect.succeed(latestByThread.get(threadId) ?? null),
+          readRunResult: (threadId) => Effect.succeed(resultsByThread.get(threadId) ?? null),
+          readThreadMessages: () => Effect.succeed(null),
           subscribeThreadEvents: () =>
             Stream.fromIterable([
               output("report", "r-report", longReceipt),
@@ -333,6 +738,11 @@ describe("bot session receipts", () => {
                 status: "completed",
               },
               { type: "run_status", threadId: "crashed", runId: "r-crashed", status: "failed" },
+              output("english-practice", "r-user-turn", {
+                status: "done",
+                outcome: "Direct answer",
+                artifacts: [],
+              }),
               {
                 type: "run_status",
                 threadId: "english-practice",
@@ -369,5 +779,52 @@ describe("bot session receipts", () => {
           notification: { outcome: "failed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
         });
       }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+});
+
+describe("skill review feed", () => {
+  it.effect("counts a completed run in Home as well as in a session", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fs.makeTempDirectoryScoped();
+      const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+      yield* store.upsertHome("main", { homeThreadId: "home", projectId: "p1" });
+      const orchestration: BotHostOrchestrationShape = {
+        ensureProject: () => Effect.die("unused"),
+        syncProjectFolders: () => Effect.void,
+        updateProjectTitle: () => Effect.void,
+        getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: "Chat" }),
+        launchThread: () => Effect.die("unused"),
+        sendMessage: () => Effect.die("unused"),
+        settleThread: () => Effect.void,
+        readRunResult: () => Effect.succeed(null),
+        readThreadMessages: () => Effect.succeed(null),
+        subscribeThreadEvents: () => Stream.empty,
+      };
+      const counted: Array<readonly [string, string]> = [];
+      const review = {
+        noteRunCompleted: (botId: string, threadId: string) =>
+          Effect.sync(() => {
+            counted.push([botId, threadId]);
+          }),
+        handleThreadEvent: () => Effect.void,
+        idle: Effect.void,
+        reviewNow: () => Effect.succeed({ queued: 0 }),
+      };
+      const completed = (threadId: string): BotHostThreadLifecycleEvent => ({
+        type: "run_status",
+        threadId,
+        runId: `run-${threadId}`,
+        status: "completed",
+      });
+      const deps = { stateDir, store, orchestration };
+      yield* applyThreadLifecycleEvent(deps, completed("home"), review);
+      yield* applyThreadLifecycleEvent(deps, completed("session"), review);
+      expect(counted).toEqual([
+        ["main", "home"],
+        ["main", "session"],
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 });

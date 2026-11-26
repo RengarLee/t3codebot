@@ -63,6 +63,7 @@ import { useChildThreadInputs, readThreadShell, waitForThreadShell } from "../..
 import { serverEnvironment } from "../../state/server";
 import { environmentShell } from "../../state/shell";
 import { ThreadStatusLine } from "./ThreadStatusLine";
+import { BotSessionFooterSettle } from "../bots/BotSessionSettleControl";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { readEnvironmentScope } from "../../state/session";
@@ -693,6 +694,13 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       actionLabel={gt("Dismiss")}
       onAction={acknowledgeActiveThreadWokeStable}
     />
+  ) : activeThreadRef &&
+    serverConfigLoaded &&
+    activeLatestRun &&
+    !isWorking &&
+    !runIsLive &&
+    canOperateThread ? (
+    <BotSessionFooterSettle key={activeThreadKey} threadRef={activeThreadRef} />
   ) : null;
   const toastThreadActionFailure =
     (title: string) => (result: AtomCommandResult<unknown, unknown>) => {

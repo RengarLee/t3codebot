@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 
 import { MAIN_BOT_ID, type BotListResponse, type BotSummary } from "../contracts.ts";
 import type { BotHome } from "./db.ts";
+import { botSkillRoots } from "./skillRoots.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 import { renderBotFiles, renderMainBotInstructions, renderSessionLog } from "./template.ts";
 
@@ -45,6 +46,7 @@ export interface BotCreateInput {
   readonly outOfScope?: ReadonlyArray<string> | undefined;
   readonly persona?: string | undefined;
   readonly projects?: ReadonlyArray<string> | undefined;
+  readonly workingFolders?: ReadonlyArray<string> | undefined;
 }
 
 export interface ParsedBotYaml {
@@ -56,8 +58,12 @@ export interface ParsedBotYaml {
   readonly sessionMode?: string;
   readonly inScope?: ReadonlyArray<string>;
   readonly outOfScope?: ReadonlyArray<string>;
+  readonly projects?: ReadonlyArray<string>;
+  readonly workingFolders?: ReadonlyArray<string>;
 }
 
+const encodeString = Schema.encodeSync(Schema.fromJsonString(Schema.String));
+const encodeStringList = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
 const decodeStringList = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Array(Schema.String)),
 );
@@ -95,6 +101,8 @@ export function parseBotYaml(source: string): ParsedBotYaml {
     sessionMode?: string;
     inScope?: ReadonlyArray<string>;
     outOfScope?: ReadonlyArray<string>;
+    projects?: ReadonlyArray<string>;
+    workingFolders?: ReadonlyArray<string>;
   } = {};
   let inRuntime = false;
 
@@ -108,11 +116,18 @@ export function parseBotYaml(source: string): ParsedBotYaml {
       const match = /^([a-zA-Z0-9_]+)\s*:\s*(.*)$/.exec(trimmed);
       if (!match) continue;
       const key = match[1];
-      if (key === "in_scope" || key === "out_of_scope") {
+      if (
+        key === "in_scope" ||
+        key === "out_of_scope" ||
+        key === "projects" ||
+        key === "working_folders"
+      ) {
         const list = decodeStringList((match[2] ?? "").trim());
         if (list._tag === "Some") {
           if (key === "in_scope") result.inScope = list.value;
-          else result.outOfScope = list.value;
+          else if (key === "out_of_scope") result.outOfScope = list.value;
+          else if (key === "projects") result.projects = list.value;
+          else result.workingFolders = list.value;
         }
         continue;
       }
@@ -133,6 +148,41 @@ export function parseBotYaml(source: string): ParsedBotYaml {
   }
 
   return result;
+}
+
+function upsertYamlFieldLine(source: string, key: string, encodedValue: string): string {
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const nextLine = `${key}: ${encodedValue}`;
+  const lines = source.split(/\r?\n/);
+  const existingIndex = lines.findIndex((line) => new RegExp(`^${key}\\s*:`).test(line));
+  if (existingIndex >= 0) {
+    lines[existingIndex] = nextLine;
+    return lines.join(newline);
+  }
+  const runtimeIndex = lines.findIndex((line) => /^runtime\s*:/.test(line));
+  if (runtimeIndex >= 0) {
+    lines.splice(runtimeIndex, 0, nextLine);
+    return lines.join(newline);
+  }
+  if (lines.at(-1) === "") {
+    lines.splice(lines.length - 1, 0, nextLine);
+    return lines.join(newline);
+  }
+  return [...lines, nextLine, ""].join(newline);
+}
+
+/** Replaces or inserts a top-level JSON-encoded string key in `bot.yaml` without clobbering other lines. */
+export function upsertYamlStringField(source: string, key: string, value: string): string {
+  return upsertYamlFieldLine(source, key, encodeString(value));
+}
+
+/** Replaces or inserts a top-level JSON-encoded string-list key in `bot.yaml` without clobbering other lines. */
+export function upsertYamlStringListField(
+  source: string,
+  key: string,
+  values: ReadonlyArray<string>,
+): string {
+  return upsertYamlFieldLine(source, key, encodeStringList(values));
 }
 
 const isDirectory = Effect.fn("bot.isDirectory")(function* (targetPath: string) {
@@ -196,6 +246,7 @@ export const listBotsInDirectory = Effect.fn("bot.listBotsInDirectory")(function
       summary: parsed.summary?.trim() || "",
       inScope: parsed.inScope ?? [],
       outOfScope: parsed.outOfScope ?? [],
+      workingFolders: parsed.workingFolders ?? [],
       version: parsed.version?.trim() || "0.1.0",
       sessionMode: parsed.sessionMode?.trim() || "fresh_per_run",
       skillsCount,
@@ -256,6 +307,7 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
     outOfScope: input.outOfScope ?? [],
     persona: input.persona ?? "",
     projects: input.projects ?? [],
+    workingFolders: input.workingFolders ?? [],
     createdAt: DateTime.formatIso(yield* DateTime.now),
   });
   for (const [relativePath, content] of files) {
@@ -314,7 +366,7 @@ export const ensureMainBotInStateDir = Effect.fn("bot.ensureMainBot")(function* 
     }));
   yield* writeFileIfChanged(
     path.join(main.path, "workspace", "AGENTS.md"),
-    renderMainBotInstructions(routableSubBots(bots)),
+    renderMainBotInstructions(routableSubBots(bots), botSkillRoots(path, main)),
   );
   const sessionLog = path.join(main.path, "workspace", "SESSIONS.md");
   if (!(yield* isFile(sessionLog))) yield* writeFileIfChanged(sessionLog, renderSessionLog([]));

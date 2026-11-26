@@ -66,6 +66,7 @@
     "test": "vp test run --config ../../vite.config.ts --dir ."
   },
   "dependencies": {
+    "diff": "8.0.3",
     "effect": "catalog:",
     "react": "catalog:"
   },
