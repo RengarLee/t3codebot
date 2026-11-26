@@ -13,7 +13,6 @@ import { userEvent } from "vite-plus/test/browser";
 import { makeThreadProjectionFixture } from "../../test-fixtures";
 import { act, render } from "../../../test/render";
 import "~/index.css";
-import "./styles.css";
 
 vi.mock(import("@t3tools/bot/web/apiClient"), () => ({ fetchBotSessions: vi.fn() }));
 

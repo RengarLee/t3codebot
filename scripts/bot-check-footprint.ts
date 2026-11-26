@@ -91,6 +91,8 @@ export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | nul
   "apps/web/src/components/chat/MessagesTimeline.logic.ts": 10,
   "apps/web/src/components/chat/ThreadDetailsPanel.tsx": 6,
   "apps/web/src/components/Sidebar.tsx": 10,
+  // Tailwind must scan packages/bot/src/web; a second utilities sheet would override app variants.
+  "apps/web/src/index.css": 2,
   // Native panel registration, tab chrome, and reopening; Bot content stays in its adapter.
   "apps/web/src/rightPanelStore.ts": 6,
   "apps/web/src/closedViewStore.ts": 1,

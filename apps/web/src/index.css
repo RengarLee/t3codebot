@@ -1,6 +1,8 @@
 /* Clerk injects its component styles into the clerk layer (clerkAppearance.cssLayerName). */
 @layer theme, base, clerk, components, utilities;
 @import "tailwindcss";
+/* Bot UI lives in packages/bot, outside this app's auto-detected sources. */
+@source "../../../packages/bot/src/web";
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));

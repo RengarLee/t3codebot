@@ -80,7 +80,6 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 import { botDetailsPanelTitle } from "./botDetailsSurface";
-import "./styles.css";
 
 type HostDetailsProps = Pick<ComponentProps<typeof ThreadDetailsCard>, "anchor" | "handle"> & {
   readonly environmentId: EnvironmentId;

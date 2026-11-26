@@ -22,7 +22,6 @@ import { useUiStateStore } from "../../uiStateStore";
 import { resolveSidebarRowStatus, resolveThreadLastVisitedAt } from "../Sidebar.logic";
 import { Button } from "../ui/button";
 import SideThreadPane from "../chat/SideThreadPane";
-import "./styles.css";
 
 export function BotDetailsSidebar({
   threadRef,
