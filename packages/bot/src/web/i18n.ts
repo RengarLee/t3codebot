@@ -1,3 +1,4 @@
+import { MEMORY_MESSAGES } from "./i18nMemory.ts";
 import { SKILL_MESSAGES } from "./i18nSkills.ts";
 
 export const BOT_MESSAGES = {
@@ -283,16 +284,16 @@ export const BOT_MESSAGES = {
     sv: "Maxantalet mappar har nåtts.",
   },
   "bots.settings.choosePrompt": {
-    en: "Choose a bot to manage its name and working folders.",
-    zh: "选择一个机器人以管理其名称和工作文件夹。",
-    de: "Wähle einen Bot aus, um Name und Arbeitsordner zu verwalten.",
-    es: "Elige un bot para gestionar su nombre y carpetas de trabajo.",
-    fr: "Choisissez un bot pour gérer son nom et ses dossiers de travail.",
-    ja: "ボットを選択して名前や作業フォルダを管理します。",
-    ko: "이름과 작업 폴더를 관리할 봇을 선택하세요.",
-    "pt-BR": "Escolha um bot para gerenciar seu nome e pastas de trabalho.",
-    ru: "Выберите бота для настройки его имени и рабочих папок.",
-    sv: "Välj en bot för att hantera namn och arbetsmappar.",
+    en: "Pick a bot to tweak its name, persona, memory, skills, and folders.",
+    zh: "选个机器人，改改它的名字、人设、记忆、技能和文件夹。",
+    de: "Such dir einen Bot aus und pass Name, Persona, Gedächtnis, Skills und Ordner an.",
+    es: "Elige un bot y ajusta su nombre, personalidad, memoria, habilidades y carpetas.",
+    fr: "Choisis un bot pour régler son nom, sa personnalité, sa mémoire, ses compétences et ses dossiers.",
+    ja: "ボットを選んで、名前・キャラ・記憶・スキル・フォルダをいじれます。",
+    ko: "봇을 골라서 이름, 성격, 기억, 스킬, 폴더를 바꿔 보세요.",
+    "pt-BR": "Escolha um bot pra ajustar nome, persona, memória, skills e pastas.",
+    ru: "Выбери бота и настрой ему имя, характер, память, навыки и папки.",
+    sv: "Välj en bot och justera namn, persona, minne, färdigheter och mappar.",
   },
   "bots.settings.backToList": {
     en: "All bots",
@@ -524,6 +525,7 @@ export const BOT_MESSAGES = {
     sv: "Den här boten kommer just nu bara åt sin egen arbetsmapp. Lägg till en mapp för att låta den arbeta någon annanstans.",
   },
   ...SKILL_MESSAGES,
+  ...MEMORY_MESSAGES,
 } as const;
 
 export type BotMessageKey = keyof typeof BOT_MESSAGES;

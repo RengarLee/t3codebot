@@ -3,6 +3,8 @@ import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import {
+  BOT_FILE_COMMANDS,
+  BOT_FILES_ROUTE_PREFIX,
   BOT_LIST_ROUTE,
   BOT_HOME_ROUTE_PREFIX,
   BOT_PROFILE_ROUTE_PREFIX,
@@ -10,6 +12,8 @@ import {
   BOT_SKILLS_ROUTE_PREFIX,
   BOT_WORKING_FOLDERS_ROUTE_PREFIX,
   BotEnsureHomeResponseSchema,
+  BotFileListResponseSchema,
+  BotFileResponseSchema,
   BotListResponseSchema,
   BotUpdateProfileResponseSchema,
   BotUpdateWorkingFoldersResponseSchema,
@@ -24,6 +28,9 @@ import {
   SkillSuggestionDecisionResponseSchema,
   SkillSuggestionsResponseSchema,
   SkillWriteResponseSchema,
+  type BotFileCommand,
+  type BotFilePath,
+  type BotFileSaveRequest,
   type BotSkillCommand,
   type BotEnsureHomeResponse,
   type BotListResponse,
@@ -176,13 +183,12 @@ export async function updateBotProfile(
   return result;
 }
 
-async function postSkillCommand<A>(
-  command: BotSkillCommand,
+async function postCommand<A>(
+  route: string,
   body: unknown,
   schema: Schema.Decoder<A>,
   options?: BotApiClientOptions,
 ): Promise<A> {
-  const route = `${BOT_SKILLS_ROUTE_PREFIX}/${BOT_SKILL_COMMANDS[command]}`;
   const outcome = await Effect.runPromise(
     Effect.gen(function* () {
       const request = yield* HttpClientRequest.post(buildBotUrl(route, options?.httpBaseUrl)).pipe(
@@ -207,6 +213,48 @@ async function postSkillCommand<A>(
   );
   if (!outcome.ok) throw new BotApiRequestError({ status: outcome.status, detail: outcome.detail });
   return outcome.value;
+}
+
+function postSkillCommand<A>(
+  command: BotSkillCommand,
+  body: unknown,
+  schema: Schema.Decoder<A>,
+  options?: BotApiClientOptions,
+): Promise<A> {
+  return postCommand(
+    `${BOT_SKILLS_ROUTE_PREFIX}/${BOT_SKILL_COMMANDS[command]}`,
+    body,
+    schema,
+    options,
+  );
+}
+
+function postFileCommand<A>(
+  command: BotFileCommand,
+  body: unknown,
+  schema: Schema.Decoder<A>,
+  options?: BotApiClientOptions,
+): Promise<A> {
+  return postCommand(
+    `${BOT_FILES_ROUTE_PREFIX}/${BOT_FILE_COMMANDS[command]}`,
+    body,
+    schema,
+    options,
+  );
+}
+
+/** The bot's daily memory notes, newest first. */
+export function listBotDailyNotes(botId: string, options?: BotApiClientOptions) {
+  return postFileCommand("list", { botId }, BotFileListResponseSchema, options);
+}
+
+export function readBotFile(botId: string, path: BotFilePath, options?: BotApiClientOptions) {
+  return postFileCommand("read", { botId, path }, BotFileResponseSchema, options);
+}
+
+/** Rejected with status 409 when the file changed since `expectedVersion`. */
+export function saveBotFile(input: BotFileSaveRequest, options?: BotApiClientOptions) {
+  return postFileCommand("save", input, BotFileResponseSchema, options);
 }
 
 export type SkillSaveInput = typeof SkillSaveRequestSchema.Type;

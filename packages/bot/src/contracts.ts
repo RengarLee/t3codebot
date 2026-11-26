@@ -100,8 +100,11 @@ export const BotUpdateWorkingFoldersResponseSchema = Schema.Struct({
 });
 export type BotUpdateWorkingFoldersResponse = typeof BotUpdateWorkingFoldersResponseSchema.Type;
 
+/** Omitted fields stay as they are. */
 export const BotUpdateProfileRequestSchema = Schema.Struct({
-  name: Schema.String,
+  name: Schema.optional(Schema.String),
+  /** One sentence on what the bot is for; Bot routes work to sub-bots by it. */
+  summary: Schema.optional(Schema.String),
 });
 export type BotUpdateProfileRequest = typeof BotUpdateProfileRequestSchema.Type;
 
@@ -474,3 +477,56 @@ export const BOT_SKILL_COMMANDS = {
   reviewNow: "review/now",
 } as const;
 export type BotSkillCommand = keyof typeof BOT_SKILL_COMMANDS;
+
+/** `POST /api/bots/files/<command>` reads and edits a bot's persona and memory files. */
+export const BOT_FILES_ROUTE_PREFIX = `${BOT_API_PREFIX}/files` as const;
+
+export const BOT_FILE_COMMANDS = {
+  list: "list",
+  read: "read",
+  save: "save",
+} as const;
+export type BotFileCommand = keyof typeof BOT_FILE_COMMANDS;
+
+export const BOT_PERSONA_FILE = "SOUL.md";
+export const BOT_LESSONS_FILE = "LESSONS.md";
+export const BOT_LONG_TERM_MEMORY_FILE = "memory/long-term.md";
+export const BOT_DAILY_MEMORY_DIR = "memory/daily";
+
+/** The only files in a bot's folder these commands touch, by path relative to that folder. */
+export const BotFilePathSchema = Schema.String.check(
+  Schema.isPattern(
+    /^(?:SOUL\.md|LESSONS\.md|memory\/long-term\.md|memory\/daily\/\d{4}-\d{2}-\d{2}\.md)$/,
+  ),
+);
+export type BotFilePath = typeof BotFilePathSchema.Type;
+
+export const BotFileListRequestSchema = Schema.Struct({ botId: Schema.String });
+/** Daily notes are listed by path, newest first; the fixed files are always editable. */
+export const BotFileListResponseSchema = Schema.Struct({
+  daily: Schema.Array(BotFilePathSchema),
+});
+export type BotFileListResponse = typeof BotFileListResponseSchema.Type;
+
+export const BotFileReadRequestSchema = Schema.Struct({
+  botId: Schema.String,
+  path: BotFilePathSchema,
+});
+
+/** `version` is the content's hash, or `null` while the file does not exist yet. */
+export const BotFileSchema = Schema.Struct({
+  path: BotFilePathSchema,
+  content: Schema.String,
+  version: Schema.NullOr(Schema.String),
+});
+export type BotFile = typeof BotFileSchema.Type;
+export const BotFileResponseSchema = Schema.Struct({ file: BotFileSchema });
+
+/** Refused with 409 when the file changed since `expectedVersion` (the bot writes these too). */
+export const BotFileSaveRequestSchema = Schema.Struct({
+  botId: Schema.String,
+  path: BotFilePathSchema,
+  content: Schema.String,
+  expectedVersion: Schema.NullOr(Schema.String),
+});
+export type BotFileSaveRequest = typeof BotFileSaveRequestSchema.Type;

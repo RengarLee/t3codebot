@@ -7,6 +7,7 @@ import {
   type SkillScope,
 } from "../contracts.ts";
 import { updateBotProfile, updateBotWorkingFolders } from "./apiClient.ts";
+import { BotMemorySection, BotPersonaSection } from "./BotMemorySection.tsx";
 import { useBotList } from "./botList.ts";
 import { createBotTranslator, type BotMessageKey, type BotTranslator } from "./i18n.ts";
 import { useOpenBotHome } from "./openBotHome.ts";
@@ -261,6 +262,8 @@ function BotDetailView({
   const [isSavingName, setIsSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const nameEditedRef = useRef(false);
+  const [isSavingSummary, setIsSavingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   const [isAddingFolder, setIsAddingFolder] = useState(false);
   const [isSavingFolders, setIsSavingFolders] = useState(false);
@@ -291,6 +294,20 @@ function BotDetailView({
       setNameError(errorMessage(caught, t("bots.detail.name.saveFailed")));
     } finally {
       setIsSavingName(false);
+    }
+  };
+
+  const commitSummary = async (rawSummary: string) => {
+    const trimmed = rawSummary.trim();
+    if (isSavingSummary || trimmed === bot.summary) return;
+    setIsSavingSummary(true);
+    setSummaryError(null);
+    try {
+      await updateBotProfile(bot.id, { summary: trimmed }, { httpBaseUrl });
+    } catch (caught) {
+      setSummaryError(errorMessage(caught, t("bots.detail.summary.saveFailed")));
+    } finally {
+      setIsSavingSummary(false);
     }
   };
 
@@ -432,6 +449,42 @@ function BotDetailView({
             </div>
           </div>
 
+          {isMain ? null : (
+            <div className="space-y-2 px-3 py-3 sm:px-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium text-foreground">
+                  {t("bots.detail.summary.title")}
+                </h3>
+                <p className="text-xs leading-normal text-muted-foreground">
+                  {t("bots.detail.summary.description")}
+                </p>
+              </div>
+              <input
+                key={`${bot.id}:${bot.summary}`}
+                type="text"
+                aria-label={t("bots.detail.summary.title")}
+                data-testid={`bot-summary-input-${bot.id}`}
+                disabled={isSavingSummary}
+                defaultValue={bot.summary}
+                placeholder={t("bots.detail.summary.placeholder")}
+                onChange={() => {
+                  if (summaryError !== null) setSummaryError(null);
+                }}
+                onBlur={(event) => void commitSummary(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+                className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-60"
+              />
+              {summaryError !== null ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {summaryError}
+                </p>
+              ) : null}
+            </div>
+          )}
+
           <div className="px-3 py-3 sm:px-4">
             <div className="space-y-1">
               <h3 className="text-sm font-medium text-foreground">
@@ -447,6 +500,10 @@ function BotDetailView({
           </div>
         </div>
       </section>
+
+      <BotPersonaSection botId={bot.id} httpBaseUrl={httpBaseUrl} t={t} />
+
+      <BotMemorySection botId={bot.id} httpBaseUrl={httpBaseUrl} t={t} />
 
       {/* Working folders section matching ProjectRepositoriesSettings */}
       <section className="space-y-2.5" data-testid={`settings-bot-folders-${bot.id}`}>
