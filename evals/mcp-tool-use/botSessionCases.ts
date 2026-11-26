@@ -6,10 +6,16 @@ import {
 } from "../../packages/bot/src/server/template.ts";
 import type { McpToolUseCase } from "./run.ts";
 
+const skillRoots = {
+  botId: "tutor",
+  sharedDir: "/bots/_shared/skills",
+  ownDir: "/bots/tutor/skills",
+};
+
 const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owner) => {
   const context =
     owner === "main"
-      ? renderMainBotInstructions([])
+      ? renderMainBotInstructions([], [], skillRoots)
       : renderSubBotInstructions(
           {
             name: "Tutor",
@@ -18,6 +24,8 @@ const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owne
             outOfScope: [],
           },
           [],
+          [],
+          skillRoots,
         );
   return ["user", "agent"].map((sender) => ({
     id: `bot-session-${owner}-${sender}`,
@@ -106,7 +114,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
       request:
         "Keep Bot replies useful; receiving or forwarding another session's result is not useful information.",
     },
-    setup: { role: "top", context: renderMainBotInstructions([]) },
+    setup: { role: "top", context: renderMainBotInstructions([], [], skillRoots) },
     prompt: `Session finished (${scenario.status}): [任务详情](t3-thread://v1/example-session)\n${scenario.outcome}`,
     expect: {
       finalTextMust: scenario.must,
@@ -131,7 +139,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
         role: "top",
         context:
           owner === "main"
-            ? renderMainBotInstructions([])
+            ? renderMainBotInstructions([], [], skillRoots)
             : renderSubBotInstructions(
                 {
                   name: "Tutor",
@@ -140,6 +148,8 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
                   outOfScope: [],
                 },
                 [],
+                [],
+                skillRoots,
               ),
       },
       prompt: withMessageSenderNote(
