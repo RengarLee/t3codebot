@@ -407,6 +407,7 @@ describe("bot session receipts", () => {
               syncedFolders.push({ projectId, paths: folders.map((folder) => folder.path) });
             }),
           updateProjectTitle: () => Effect.void,
+          readThreadMessages: () => Effect.succeed(null),
           getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: "Create" }),
           launchThread: () => Effect.die("unused"),
           sendMessage: (input) =>
@@ -439,7 +440,16 @@ describe("bot session receipts", () => {
           (bot) => bot.name === "Tutor",
         );
         expect(tutor?.workingFolders).toEqual([studyDir]);
-        expect(syncedFolders).toEqual([{ projectId: tutor?.projectId ?? "", paths: [studyDir] }]);
+        expect(syncedFolders).toEqual([
+          {
+            projectId: tutor?.projectId ?? "",
+            paths: [
+              path.join(stateDir, "bots", "_shared", "skills"),
+              path.join(tutor?.path ?? "", "skills"),
+              studyDir,
+            ],
+          },
+        ]);
         const tutorAgents = yield* fs.readFileString(
           path.join(tutor?.path ?? "", "workspace", "AGENTS.md"),
         );
@@ -520,6 +530,7 @@ describe("bot session receipts", () => {
               syncedFolders.push({ projectId, paths: folders.map((folder) => folder.path) });
             }),
           updateProjectTitle: () => Effect.void,
+          readThreadMessages: () => Effect.succeed(null),
           getThread: (threadId) =>
             Effect.succeed({
               threadId,
@@ -576,7 +587,16 @@ describe("bot session receipts", () => {
           (bot) => bot.id === tutor.id,
         );
         expect(reloaded?.workingFolders).toEqual([studyDir]);
-        expect(syncedFolders).toEqual([{ projectId: "p2", paths: [studyDir] }]);
+        expect(syncedFolders).toEqual([
+          {
+            projectId: "p2",
+            paths: [
+              path.join(stateDir, "bots", "_shared", "skills"),
+              path.join(tutor.path, "skills"),
+              studyDir,
+            ],
+          },
+        ]);
         expect(settled).toEqual([
           { threadId: "update-ok", clientRequestId: "bot:settle:r-add" },
           { threadId: "update-bad", clientRequestId: "bot:settle:r-missing" },
