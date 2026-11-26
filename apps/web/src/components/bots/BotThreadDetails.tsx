@@ -19,6 +19,8 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { T, msg, useGT, useMessages } from "gt-react";
 import {
+  HomeIcon,
+  PanelRightOpenIcon,
   CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
@@ -76,6 +78,8 @@ import { InlineButton } from "../ui/button";
 import { Popover, PopoverPopup } from "../ui/popover";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+
+import { botDetailsPanelTitle } from "./botDetailsSurface";
 
 type HostDetailsProps = Pick<ComponentProps<typeof ThreadDetailsCard>, "anchor" | "handle"> & {
   readonly environmentId: EnvironmentId;
@@ -243,6 +247,23 @@ function BotThreadDetails({
       <BotOverviewPanel
         key={bot.id}
         locale={locale}
+        header={
+          <button
+            type="button"
+            data-testid="bot-details-trigger"
+            onClick={() => {
+              useRightPanelStore.getState().open(panelRef, "bot-details");
+            }}
+            className={cn(
+              "mb-1.5 inline-flex cursor-pointer items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              THREAD_DETAILS_PANEL_ROW_CLASS,
+            )}
+          >
+            <HomeIcon aria-hidden className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 text-left">{botDetailsPanelTitle()}</span>
+            <PanelRightOpenIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          </button>
+        }
         activeSessionIds={active.map((thread) => thread.id)}
         workingSessionIds={working.map((thread) => thread.id)}
         settledSessionIds={settled.map((thread) => thread.id)}

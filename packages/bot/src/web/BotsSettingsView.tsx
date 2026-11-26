@@ -7,6 +7,7 @@ import {
   type SkillScope,
 } from "../contracts.ts";
 import { updateBotProfile, updateBotWorkingFolders } from "./apiClient.ts";
+import { BotMemorySection, BotPersonaSection } from "./BotMemorySection.tsx";
 import { useBotList } from "./botList.ts";
 import { createBotTranslator, type BotMessageKey, type BotTranslator } from "./i18n.ts";
 import { useOpenBotHome } from "./openBotHome.ts";
@@ -196,7 +197,7 @@ function FallbackAddFolderDialog({
               setDraftPath(event.currentTarget.value);
               if (error !== null) onClearError();
             }}
-            className="h-8 w-full rounded-lg border border-border bg-background px-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-60"
+            className="h-8 w-full rounded-lg border border-border bg-background px-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-64"
           />
           {error !== null ? (
             <p role="alert" className="text-xs text-destructive">
@@ -209,7 +210,7 @@ function FallbackAddFolderDialog({
             type="button"
             disabled={busy}
             onClick={onClose}
-            className="h-8 cursor-pointer rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted disabled:opacity-50"
+            className="h-8 cursor-pointer rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted disabled:opacity-64"
           >
             {t("bots.folders.cancel")}
           </button>
@@ -217,7 +218,7 @@ function FallbackAddFolderDialog({
             type="submit"
             disabled={busy || draftPath.trim().length === 0}
             data-testid="bot-folder-submit"
-            className="h-8 cursor-pointer rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:cursor-default disabled:opacity-50"
+            className="h-8 cursor-pointer rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:cursor-default disabled:opacity-64"
           >
             {t("bots.folders.addButton")}
           </button>
@@ -261,6 +262,8 @@ function BotDetailView({
   const [isSavingName, setIsSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const nameEditedRef = useRef(false);
+  const [isSavingSummary, setIsSavingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   const [isAddingFolder, setIsAddingFolder] = useState(false);
   const [isSavingFolders, setIsSavingFolders] = useState(false);
@@ -291,6 +294,20 @@ function BotDetailView({
       setNameError(errorMessage(caught, t("bots.detail.name.saveFailed")));
     } finally {
       setIsSavingName(false);
+    }
+  };
+
+  const commitSummary = async (rawSummary: string) => {
+    const trimmed = rawSummary.trim();
+    if (isSavingSummary || trimmed === bot.summary) return;
+    setIsSavingSummary(true);
+    setSummaryError(null);
+    try {
+      await updateBotProfile(bot.id, { summary: trimmed }, { httpBaseUrl });
+    } catch (caught) {
+      setSummaryError(errorMessage(caught, t("bots.detail.summary.saveFailed")));
+    } finally {
+      setIsSavingSummary(false);
     }
   };
 
@@ -380,7 +397,7 @@ function BotDetailView({
             type="button"
             disabled={openingBotId !== null}
             onClick={() => void onOpenHome(bot.id, bot.projectId)}
-            className="h-7 cursor-pointer rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
+            className="h-7 cursor-pointer rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:cursor-default disabled:opacity-64"
           >
             {t("bots.list.open")}
           </button>
@@ -421,7 +438,7 @@ function BotDetailView({
                     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                     if (event.key === "Enter") event.currentTarget.blur();
                   }}
-                  className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground focus:border-ring focus:outline-none disabled:opacity-60"
+                  className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground focus:border-ring focus:outline-none disabled:opacity-64"
                 />
                 {nameError !== null ? (
                   <p role="alert" className="text-xs text-destructive">
@@ -431,6 +448,42 @@ function BotDetailView({
               </div>
             </div>
           </div>
+
+          {isMain ? null : (
+            <div className="space-y-2 px-3 py-3 sm:px-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium text-foreground">
+                  {t("bots.detail.summary.title")}
+                </h3>
+                <p className="text-xs leading-normal text-muted-foreground">
+                  {t("bots.detail.summary.description")}
+                </p>
+              </div>
+              <input
+                key={`${bot.id}:${bot.summary}`}
+                type="text"
+                aria-label={t("bots.detail.summary.title")}
+                data-testid={`bot-summary-input-${bot.id}`}
+                disabled={isSavingSummary}
+                defaultValue={bot.summary}
+                placeholder={t("bots.detail.summary.placeholder")}
+                onChange={() => {
+                  if (summaryError !== null) setSummaryError(null);
+                }}
+                onBlur={(event) => void commitSummary(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+                className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-64"
+              />
+              {summaryError !== null ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {summaryError}
+                </p>
+              ) : null}
+            </div>
+          )}
 
           <div className="px-3 py-3 sm:px-4">
             <div className="space-y-1">
@@ -447,6 +500,10 @@ function BotDetailView({
           </div>
         </div>
       </section>
+
+      <BotPersonaSection botId={bot.id} httpBaseUrl={httpBaseUrl} t={t} />
+
+      <BotMemorySection botId={bot.id} httpBaseUrl={httpBaseUrl} t={t} />
 
       {/* Working folders section matching ProjectRepositoriesSettings */}
       <section className="space-y-2.5" data-testid={`settings-bot-folders-${bot.id}`}>
@@ -475,7 +532,7 @@ function BotDetailView({
                     setDialogError(null);
                     setIsAddingFolder(true);
                   }}
-                  className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+                  className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:cursor-default disabled:opacity-64"
                 >
                   <PlusGlyph />
                   <span>{t("bots.folders.addButton")}</span>
@@ -521,7 +578,7 @@ function BotDetailView({
                       disabled={isSavingFolders}
                       aria-label={`${t("bots.folders.remove")} ${label}`}
                       onClick={() => void removeFolder(folder)}
-                      className="h-7 shrink-0 cursor-pointer self-start rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-default disabled:opacity-50 sm:self-center"
+                      className="h-7 shrink-0 cursor-pointer self-start rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-default disabled:opacity-64 sm:self-center"
                     >
                       {t("bots.folders.remove")}
                     </button>
@@ -538,8 +595,6 @@ function BotDetailView({
           ) : null}
         </div>
       </section>
-
-      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={bot.id} />
 
       <SkillSuggestionsSection
         locale={locale}
@@ -560,6 +615,8 @@ function BotDetailView({
         t={t}
         onOpenSkill={onOpenSkill}
       />
+
+      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={bot.id} />
 
       {isAddingFolder ? (
         renderAddFolderDialog !== undefined ? (
@@ -684,8 +741,6 @@ export function BotsSettingsView({
         </div>
       </div>
 
-      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={null} />
-
       <SkillSuggestionsSection
         locale={locale}
         httpBaseUrl={httpBaseUrl}
@@ -709,6 +764,8 @@ export function BotsSettingsView({
         t={t}
         onOpenSkill={onOpenSkill}
       />
+
+      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={null} />
     </div>
   );
 }

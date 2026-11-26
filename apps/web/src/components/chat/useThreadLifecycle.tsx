@@ -700,7 +700,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     !isWorking &&
     !runIsLive &&
     canOperateThread ? (
-    <BotSessionFooterSettle key={activeThreadKey} threadRef={activeThreadRef} />
+    <BotSessionFooterSettle key={`bot-settle:${activeThreadKey}`} threadRef={activeThreadRef} />
   ) : null;
   const toastThreadActionFailure =
     (title: string) => (result: AtomCommandResult<unknown, unknown>) => {

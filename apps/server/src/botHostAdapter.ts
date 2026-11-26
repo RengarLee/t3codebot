@@ -22,6 +22,8 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { BotSessionsRequest } from "@t3tools/bot/contracts";
 
 import * as ServerConfig from "./config.ts";
 import * as OrchestratorV2 from "./orchestration-v2/Orchestrator.ts";
@@ -37,6 +39,54 @@ function toHostError(operation: string, cause: unknown): BotHostError {
     detail: cause instanceof Error ? cause.message : String(cause),
   });
 }
+
+export const readBotSessionRows = Effect.fn("botHostAdapter.readSessionRows")(function* (
+  input: BotSessionsRequest & { readonly projectIds: ReadonlyArray<string> },
+) {
+  const sql = yield* SqlClient.SqlClient;
+  // The first run's sender survives later messages; forks/subagents already have native lineage.
+  const rows = yield* sql<{
+    readonly thread_id: string;
+    readonly parent_id: string;
+    readonly created_at: string;
+  }>`
+    WITH RECURSIVE sessions AS MATERIALIZED (
+      SELECT t.thread_id, t.created_at,
+        COALESCE(json_extract(t.payload_json, '$.lineage.parentThreadId'),
+          CASE WHEN json_extract(t.payload_json, '$.createdBy') = 'agent' THEN (
+            SELECT json_extract(m.payload_json, '$.senderThreadId')
+            FROM orchestration_v2_projection_messages m
+            WHERE m.message_id = (
+              SELECT json_extract(r.payload_json, '$.userMessageId')
+              FROM orchestration_v2_projection_runs r
+              WHERE r.thread_id = t.thread_id
+              ORDER BY r.ordinal LIMIT 1
+            )
+          ) END) AS parent_id
+      FROM orchestration_v2_projection_threads t
+      WHERE t.deleted_at IS NULL
+        AND t.project_id IN ${sql.in(input.projectIds)}
+    ), descendants(thread_id) AS (
+      SELECT thread_id FROM sessions WHERE parent_id = ${input.parentThreadId}
+      UNION
+      SELECT s.thread_id FROM sessions s JOIN descendants d ON s.parent_id = d.thread_id
+      WHERE ${input.descendants ? 1 : 0} = 1 AND s.thread_id != ${input.parentThreadId}
+    )
+    SELECT s.thread_id, s.parent_id, s.created_at
+    FROM sessions s JOIN descendants d ON s.thread_id = d.thread_id
+    WHERE s.thread_id != ${input.parentThreadId}
+      ${
+        input.cursor === undefined
+          ? sql``
+          : input.descendants
+            ? sql`AND (s.created_at, s.thread_id) > (${input.cursor.createdAt}, ${input.cursor.threadId})`
+            : sql`AND (s.created_at, s.thread_id) < (${input.cursor.createdAt}, ${input.cursor.threadId})`
+      }
+    ORDER BY s.created_at ${input.descendants ? sql`ASC` : sql`DESC`}, s.thread_id ${input.descendants ? sql`ASC` : sql`DESC`}
+    LIMIT 41
+  `;
+  return { rows: rows.slice(0, 40), hasMore: rows.length > 40 };
+});
 
 function mapRunStatus(
   status: string,
@@ -120,6 +170,7 @@ const layerBotServerHostLive = Layer.effect(
     const projectService = yield* ProjectService.ProjectService;
     const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
     const random = yield* SecureRandom.SecureRandom;
+    const sql = yield* SqlClient.SqlClient;
 
     const resolveFallbackModelSelection = Effect.gen(function* () {
       const providers = yield* providerRegistry.getProviders;
@@ -140,6 +191,21 @@ const layerBotServerHostLive = Layer.effect(
     });
 
     const orchestration: BotHostOrchestrationShape = {
+      readSessions: Effect.fn("botHostAdapter.readSessions")(function* (input) {
+        const { rows, hasMore } = yield* readBotSessionRows(input).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+          Effect.mapError((cause) => toHostError("readSessions", cause)),
+        );
+        const sessions = yield* Effect.forEach(rows, (row) =>
+          projections.getThreadShell(ThreadId.make(row.thread_id)).pipe(
+            Effect.map((thread) =>
+              thread === null ? [] : [{ parentThreadId: ThreadId.make(row.parent_id), thread }],
+            ),
+            Effect.mapError((cause) => toHostError("readSessions", cause)),
+          ),
+        );
+        return { sessions: sessions.flat(), hasMore };
+      }),
       ensureProject: Effect.fn("botHostAdapter.ensureProject")(function* (input) {
         const { project } = yield* projectService
           .bootstrap({

@@ -61,6 +61,7 @@ const setup = Effect.gen(function* () {
   const sent: Array<BotHostSendMessageInput> = [];
   const synced: Array<BotHostSyncProjectFoldersInput> = [];
   const orchestration: BotHostOrchestrationShape = {
+    readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
     ensureProject: ({ workspaceRoot }) => Effect.succeed({ projectId: `project:${workspaceRoot}` }),
     syncProjectFolders: (input) =>
       Effect.sync(() => {

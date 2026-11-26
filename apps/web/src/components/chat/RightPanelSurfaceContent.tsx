@@ -1,3 +1,4 @@
+import { BotDetailsSidebar } from "../bots/BotDetailsSidebar";
 import { useGT } from "gt-react";
 import type {
   EditorId,
@@ -91,6 +92,14 @@ export function RightPanelSurfaceContent(props: {
   const gt = useGT();
   if (surface === null) return null;
   switch (surface.kind) {
+    case "bot-details":
+      return (
+        <BotDetailsSidebar
+          key={scopedThreadKey(threadRef)}
+          threadRef={threadRef}
+          parentPanel={props.sideChatParentPanel}
+        />
+      );
     case "preview":
       return (
         <Suspense fallback={null}>

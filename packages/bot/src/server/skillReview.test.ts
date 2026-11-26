@@ -82,6 +82,7 @@ const setup = Effect.fn("test.setup")(function* (
   for (const threadId of options.chats ?? ["t1"]) addChat(threadId);
 
   const orchestration: BotHostOrchestrationShape = {
+    readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
     ensureProject: () => Effect.die("unused"),
     syncProjectFolders: () => Effect.void,
     updateProjectTitle: () => Effect.void,

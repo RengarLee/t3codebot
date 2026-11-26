@@ -1504,6 +1504,9 @@ importers:
 
   packages/bot:
     dependencies:
+      '@t3tools/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       diff:
         specifier: 8.0.3
         version: 8.0.3

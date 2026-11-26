@@ -1,4 +1,5 @@
 import { msg, T, useGT, useMessages } from "gt-react";
+import { botDetailsPanelTitle } from "./bots/botDetailsSurface";
 import { contextMenuSourceOf } from "../contextMenuSource";
 import { m, type MessageResolver } from "../i18n/messages";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -601,6 +602,8 @@ function surfaceTitle(
   resolve: MessageResolver = m,
 ): string {
   switch (surface.kind) {
+    case "bot-details":
+      return botDetailsPanelTitle();
     case "diff":
       return resolve(msg("Diff"));
     case "files":
@@ -692,6 +695,8 @@ function SurfaceIcon({
   pullRequestStatusSeed: PullRequestTabStatusSeed | undefined;
 }) {
   switch (surface.kind) {
+    case "bot-details":
+      return <Bot className="size-3 shrink-0" />;
     case "preview":
       return <PreviewFavicon capturedUrl={previewCapturedUrl} url={previewUrl} />;
     case "diff":
