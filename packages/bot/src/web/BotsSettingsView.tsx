@@ -596,8 +596,6 @@ function BotDetailView({
         </div>
       </section>
 
-      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={bot.id} />
-
       <SkillSuggestionsSection
         locale={locale}
         httpBaseUrl={httpBaseUrl}
@@ -617,6 +615,8 @@ function BotDetailView({
         t={t}
         onOpenSkill={onOpenSkill}
       />
+
+      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={bot.id} />
 
       {isAddingFolder ? (
         renderAddFolderDialog !== undefined ? (
@@ -741,8 +741,6 @@ export function BotsSettingsView({
         </div>
       </div>
 
-      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={null} />
-
       <SkillSuggestionsSection
         locale={locale}
         httpBaseUrl={httpBaseUrl}
@@ -766,6 +764,8 @@ export function BotsSettingsView({
         t={t}
         onOpenSkill={onOpenSkill}
       />
+
+      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={null} />
     </div>
   );
 }
