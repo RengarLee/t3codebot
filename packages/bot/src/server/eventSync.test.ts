@@ -67,6 +67,7 @@ describe("bot session receipts", () => {
             assistantText: receipt.outcome,
             output: receipt,
           }),
+        readThreadMessages: () => Effect.succeed(null),
         subscribeThreadEvents: () => Stream.empty,
       };
       const deps = { stateDir, store, orchestration };
@@ -130,6 +131,7 @@ describe("bot session receipts", () => {
                 assistantText: "Answer",
                 output: receipt,
               }),
+            readThreadMessages: () => Effect.succeed(null),
             subscribeThreadEvents: () => Stream.empty,
           };
           const deps = { stateDir, store, orchestration };
@@ -223,6 +225,7 @@ describe("bot session receipts", () => {
               settled.push(input);
             }),
           readRunResult: (threadId) => Effect.succeed(resultsByThread.get(threadId) ?? null),
+          readThreadMessages: () => Effect.succeed(null),
           subscribeThreadEvents: () =>
             Stream.fromIterable([
               output("fix", "r1", receipt),
@@ -325,6 +328,7 @@ describe("bot session receipts", () => {
             assistantText: null,
             output: spec,
           }),
+        readThreadMessages: () => Effect.succeed(null),
         subscribeThreadEvents: () =>
           Stream.fromIterable([
             output("hire", "r1", spec),
@@ -466,6 +470,7 @@ describe("bot session receipts", () => {
               });
             }),
           readRunResult: (threadId) => Effect.succeed(resultsByThread.get(threadId) ?? null),
+          readThreadMessages: () => Effect.succeed(null),
           subscribeThreadEvents: () =>
             Stream.fromIterable([
               output("report", "r-report", longReceipt),
@@ -518,5 +523,52 @@ describe("bot session receipts", () => {
           notification: { outcome: "failed", detail: BOT_WAKE_NOTIFICATION_DETAIL },
         });
       }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+});
+
+describe("skill review feed", () => {
+  it.effect("counts a completed run in Home as well as in a session", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fs.makeTempDirectoryScoped();
+      const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+      yield* store.upsertHome("main", { homeThreadId: "home", projectId: "p1" });
+      const orchestration: BotHostOrchestrationShape = {
+        ensureProject: () => Effect.die("unused"),
+        syncProjectFolders: () => Effect.void,
+        updateProjectTitle: () => Effect.void,
+        getThread: (threadId) => Effect.succeed({ threadId, projectId: "p1", title: "Chat" }),
+        launchThread: () => Effect.die("unused"),
+        sendMessage: () => Effect.die("unused"),
+        settleThread: () => Effect.void,
+        readRunResult: () => Effect.succeed(null),
+        readThreadMessages: () => Effect.succeed(null),
+        subscribeThreadEvents: () => Stream.empty,
+      };
+      const counted: Array<readonly [string, string]> = [];
+      const review = {
+        noteRunCompleted: (botId: string, threadId: string) =>
+          Effect.sync(() => {
+            counted.push([botId, threadId]);
+          }),
+        handleThreadEvent: () => Effect.void,
+        idle: Effect.void,
+        reviewNow: () => Effect.succeed({ queued: 0 }),
+      };
+      const completed = (threadId: string): BotHostThreadLifecycleEvent => ({
+        type: "run_status",
+        threadId,
+        runId: `run-${threadId}`,
+        status: "completed",
+      });
+      const deps = { stateDir, store, orchestration };
+      yield* applyThreadLifecycleEvent(deps, completed("home"), review);
+      yield* applyThreadLifecycleEvent(deps, completed("session"), review);
+      expect(counted).toEqual([
+        ["main", "home"],
+        ["main", "session"],
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 });

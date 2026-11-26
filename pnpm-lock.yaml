@@ -1503,6 +1503,9 @@ importers:
 
   packages/bot:
     dependencies:
+      diff:
+        specifier: 8.0.3
+        version: 8.0.3
       effect:
         specifier: 4.1.5
         version: 4.1.5(patch_hash=14a7acd734809d8dddbf2c19c4ec01fdd2ffae60a612de42b5ed29860216052a)

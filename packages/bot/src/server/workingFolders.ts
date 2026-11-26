@@ -6,18 +6,18 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { BOT_WORKING_FOLDERS_MAX, MAIN_BOT_ID } from "../contracts.ts";
+import { BOT_WORKING_FOLDERS_MAX, MAIN_BOT_ID, type BotSummary } from "../contracts.ts";
 import { BotNotFoundError, ensureBotProject, type BotHomeDeps } from "./home.ts";
 import type { BotHostTrackedFolder } from "./host.ts";
+import { refreshSubBotInstructions } from "./instructions.ts";
 import {
   BotCreateIoError,
   ensureMainBotInStateDir,
   listStateDirBots,
-  parseBotYaml,
   upsertYamlStringListField,
   writeFileIfChanged,
 } from "./registry.ts";
-import { renderSubBotInstructions } from "./template.ts";
+import { botSkillRoots } from "./skillRoots.ts";
 
 export class BotWorkingFoldersValidationError extends Schema.TaggedError<
   BotWorkingFoldersValidationError,
@@ -65,6 +65,23 @@ export function toBotTrackedFolders(
     const name = (base || fallback).slice(0, FOLDER_NAME_MAX).trim() || "folder";
     return { path: folderPath, name };
   });
+}
+
+/**
+ * What a bot's T3 project tracks: the shared and its own skill folders (so the agent's sandbox may
+ * write them, which a skill change needs), then the user's working folders.
+ */
+export function botProjectFolders(
+  path: Path.Path,
+  bot: Pick<BotSummary, "id" | "path">,
+  workingFolders: ReadonlyArray<string>,
+): ReadonlyArray<BotHostTrackedFolder> {
+  const skills = botSkillRoots(path, bot);
+  return [
+    { path: skills.sharedDir, name: "shared-skills" },
+    { path: skills.ownDir, name: "bot-skills" },
+    ...toBotTrackedFolders(path, workingFolders),
+  ];
 }
 
 const normalizeWorkingFolders = Effect.fn("bot.workingFolders.normalize")(function* (
@@ -178,7 +195,7 @@ export const updateBotWorkingFolders = Effect.fn("bot.workingFolders.update")(fu
     const { projectId } = yield* ensureBotProject(homeDeps, bot);
     yield* deps.orchestration.syncProjectFolders({
       projectId,
-      folders: toBotTrackedFolders(path, workingFolders),
+      folders: botProjectFolders(path, bot, workingFolders),
     });
   }
 
@@ -193,21 +210,7 @@ export const updateBotWorkingFolders = Effect.fn("bot.workingFolders.update")(fu
   if (bot.id === MAIN_BOT_ID) {
     yield* ensureMainBotInStateDir(deps.stateDir, refreshedHomes);
   } else {
-    const parsed = parseBotYaml(nextYaml);
-    const projectFolders = (parsed.projects ?? []).filter(path.isAbsolute);
-    const orchestration = deps.orchestration;
-    const codeProjects =
-      orchestration === undefined
-        ? []
-        : yield* Effect.forEach(projectFolders, (folder) =>
-            orchestration
-              .ensureProject({ workspaceRoot: folder, title: path.basename(folder) })
-              .pipe(Effect.map(({ projectId }) => ({ folder, projectId }))),
-          );
-    yield* writeFileIfChanged(
-      path.join(workspaceRoot, "AGENTS.md"),
-      renderSubBotInstructions(bot, codeProjects, workingFolders),
-    );
+    yield* refreshSubBotInstructions(deps, { ...bot, workingFolders });
   }
 
   const updated = (yield* listStateDirBots(deps.stateDir, refreshedHomes)).bots.find(

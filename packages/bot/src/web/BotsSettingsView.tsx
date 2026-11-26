@@ -1,10 +1,18 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 
-import { BOT_WORKING_FOLDERS_MAX, MAIN_BOT_ID, type BotSummary } from "../contracts.ts";
+import {
+  BOT_WORKING_FOLDERS_MAX,
+  MAIN_BOT_ID,
+  type BotSummary,
+  type SkillScope,
+} from "../contracts.ts";
 import { updateBotProfile, updateBotWorkingFolders } from "./apiClient.ts";
 import { useBotList } from "./botList.ts";
-import { createBotTranslator, type BotMessageKey } from "./i18n.ts";
+import { createBotTranslator, type BotMessageKey, type BotTranslator } from "./i18n.ts";
 import { useOpenBotHome } from "./openBotHome.ts";
+import { SkillDetailView } from "./SkillDetailView.tsx";
+import { SkillListSection, SkillSuggestionsSection } from "./SkillListSection.tsx";
+import { SkillReviewSection } from "./SkillReviewSection.tsx";
 
 export interface BotAddFolderDialogRenderProps {
   readonly bot: BotSummary;
@@ -229,7 +237,11 @@ interface BotDetailViewProps {
   readonly renderAddFolderDialog?:
     | ((props: BotAddFolderDialogRenderProps) => ReactNode)
     | undefined;
-  readonly t: (key: BotMessageKey) => string;
+  readonly t: BotTranslator;
+  readonly locale: string | undefined;
+  readonly bots: ReadonlyArray<BotSummary>;
+  readonly onOpenSkill: (scope: SkillScope, name: string | null) => void;
+  readonly onOpenThread: (threadId: string) => void;
 }
 
 function BotDetailView({
@@ -241,6 +253,10 @@ function BotDetailView({
   failedBotId,
   renderAddFolderDialog,
   t,
+  locale,
+  bots,
+  onOpenSkill,
+  onOpenThread,
 }: BotDetailViewProps) {
   const [isSavingName, setIsSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -523,6 +539,28 @@ function BotDetailView({
         </div>
       </section>
 
+      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={bot.id} />
+
+      <SkillSuggestionsSection
+        locale={locale}
+        httpBaseUrl={httpBaseUrl}
+        t={t}
+        bots={bots}
+        botId={bot.id}
+        onOpenSkill={onOpenSkill}
+        onOpenThread={onOpenThread}
+      />
+
+      <SkillListSection
+        scope={{ scope: "bot", botId: bot.id }}
+        title={t("bots.skills.title")}
+        note={t("bots.skills.bot.note")}
+        locale={locale}
+        httpBaseUrl={httpBaseUrl}
+        t={t}
+        onOpenSkill={onOpenSkill}
+      />
+
       {isAddingFolder ? (
         renderAddFolderDialog !== undefined ? (
           renderAddFolderDialog(dialogProps)
@@ -545,6 +583,10 @@ export function BotsSettingsView({
   const bots = useBotList(httpBaseUrl);
   const { openHome, openingBotId, failedBotId } = useOpenBotHome(httpBaseUrl, onOpenThread);
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
+  const [openSkill, setOpenSkill] = useState<{
+    readonly scope: SkillScope;
+    readonly name: string | null;
+  } | null>(null);
 
   const orderedBots = [...bots].sort((left, right) => {
     if (left.id === MAIN_BOT_ID) return -1;
@@ -553,6 +595,24 @@ export function BotsSettingsView({
   });
   const selectedBot =
     selectedBotId === null ? null : (orderedBots.find((bot) => bot.id === selectedBotId) ?? null);
+
+  if (openSkill !== null) {
+    return (
+      <SkillDetailView
+        key={`${openSkill.scope.scope === "bot" ? openSkill.scope.botId : "shared"}:${openSkill.name ?? ""}`}
+        scope={openSkill.scope}
+        initialName={openSkill.name}
+        bots={orderedBots}
+        locale={locale}
+        httpBaseUrl={httpBaseUrl}
+        t={t}
+        onBack={() => setOpenSkill(null)}
+        onOpenThread={onOpenThread}
+      />
+    );
+  }
+
+  const onOpenSkill = (scope: SkillScope, name: string | null) => setOpenSkill({ scope, name });
 
   if (selectedBot !== null) {
     return (
@@ -566,6 +626,10 @@ export function BotsSettingsView({
         failedBotId={failedBotId}
         renderAddFolderDialog={renderAddFolderDialog}
         t={t}
+        locale={locale}
+        bots={orderedBots}
+        onOpenSkill={onOpenSkill}
+        onOpenThread={onOpenThread}
       />
     );
   }
@@ -619,6 +683,32 @@ export function BotsSettingsView({
           })}
         </div>
       </div>
+
+      <SkillReviewSection httpBaseUrl={httpBaseUrl} t={t} botId={null} />
+
+      <SkillSuggestionsSection
+        locale={locale}
+        httpBaseUrl={httpBaseUrl}
+        t={t}
+        bots={orderedBots}
+        botId={null}
+        onOpenSkill={onOpenSkill}
+        onOpenThread={onOpenThread}
+      />
+
+      <SkillListSection
+        scope={{ scope: "shared" }}
+        title={t("bots.skills.shared.title")}
+        note={
+          orderedBots.length > 1
+            ? t("bots.skills.shared.note", { count: orderedBots.length })
+            : t("bots.skills.shared.noteGeneric")
+        }
+        locale={locale}
+        httpBaseUrl={httpBaseUrl}
+        t={t}
+        onOpenSkill={onOpenSkill}
+      />
     </div>
   );
 }

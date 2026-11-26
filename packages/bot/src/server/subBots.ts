@@ -3,8 +3,8 @@ import * as Path from "effect/Path";
 
 import type { BotSubBotSpec } from "../contracts.ts";
 import { ensureBotProject, type BotHomeDeps } from "./home.ts";
-import { createBotInStateDir, ensureMainBotInStateDir, writeFileIfChanged } from "./registry.ts";
-import { renderSubBotInstructions } from "./template.ts";
+import { refreshSubBotInstructions } from "./instructions.ts";
+import { createBotInStateDir, ensureMainBotInStateDir } from "./registry.ts";
 
 /**
  * Builds a sub-bot from the spec a "Create sub-bot" session handed back: its folder, its own T3
@@ -28,15 +28,7 @@ export const createSubBot = Effect.fn("bot.subBot.create")(function* (
     projects: folders,
   });
 
-  const codeProjects = yield* Effect.forEach(folders, (folder) =>
-    deps.orchestration
-      .ensureProject({ workspaceRoot: folder, title: path.basename(folder) })
-      .pipe(Effect.map(({ projectId }) => ({ folder, projectId }))),
-  );
-  yield* writeFileIfChanged(
-    path.join(bot.path, "workspace", "AGENTS.md"),
-    renderSubBotInstructions(bot, codeProjects),
-  );
+  yield* refreshSubBotInstructions(deps, bot);
   const { projectId } = yield* ensureBotProject(deps, bot);
 
   yield* ensureMainBotInStateDir(deps.stateDir, yield* deps.store.getHomesByBot());

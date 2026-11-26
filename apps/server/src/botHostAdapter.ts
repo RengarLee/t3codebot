@@ -3,6 +3,7 @@ import {
   BotServerHost,
   type BotHostOrchestrationShape,
   type BotHostThreadLifecycleEvent,
+  type BotHostThreadMessage,
 } from "@t3tools/bot/server/host";
 import { botHttpRoutesLayer } from "@t3tools/bot/server/http";
 import {
@@ -12,6 +13,7 @@ import {
   RunId,
   ThreadId,
   type ModelSelection,
+  type OrchestrationV2ConversationMessage,
   type OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -82,6 +84,29 @@ export function mapDomainEvent(
     };
   }
   return null;
+}
+
+/** The chat a person would read: user and assistant text that is finished, in thread order. */
+export function toHostThreadMessages(
+  messages: ReadonlyArray<OrchestrationV2ConversationMessage>,
+): ReadonlyArray<BotHostThreadMessage> {
+  return messages.flatMap((message) =>
+    (message.role === "user" || message.role === "assistant") &&
+    !message.streaming &&
+    message.text.trim().length > 0
+      ? [
+          {
+            id: message.id,
+            role: message.role,
+            text: message.text,
+            createdBy:
+              message.createdBy === "user" || message.createdBy === "agent"
+                ? message.createdBy
+                : null,
+          },
+        ]
+      : [],
+  );
 }
 
 const layerBotServerHostLive = Layer.effect(
@@ -304,6 +329,14 @@ const layerBotServerHostLive = Layer.effect(
           assistantText: assistant?.text ?? null,
           output: run.output?.value ?? null,
         };
+      }),
+
+      readThreadMessages: Effect.fn("botHostAdapter.readThreadMessages")(function* (threadId) {
+        const records = yield* projections
+          .getThreadRecords(ThreadId.make(threadId), ["messages"])
+          .pipe(Effect.option);
+        if (records._tag === "None" || records.value.thread.deletedAt !== null) return null;
+        return toHostThreadMessages(records.value.messages);
       }),
 
       subscribeThreadEvents: () =>
