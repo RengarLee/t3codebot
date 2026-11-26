@@ -3,9 +3,9 @@ import * as Path from "effect/Path";
 
 import type { BotSubBotSpec } from "../contracts.ts";
 import { ensureBotProject, type BotHomeDeps } from "./home.ts";
-import { createBotInStateDir, ensureMainBotInStateDir, writeFileIfChanged } from "./registry.ts";
+import { refreshSubBotInstructions } from "./instructions.ts";
+import { createBotInStateDir, ensureMainBotInStateDir } from "./registry.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
-import { renderSubBotInstructions } from "./template.ts";
 import { normalizeWorkingFolders } from "./workingFolders.ts";
 
 /**
@@ -36,15 +36,7 @@ export const createSubBot = Effect.fn("bot.subBot.create")(function* (
     workingFolders,
   });
 
-  const codeProjects = yield* Effect.forEach(folders, (folder) =>
-    deps.orchestration
-      .ensureProject({ workspaceRoot: folder, title: path.basename(folder) })
-      .pipe(Effect.map(({ projectId }) => ({ folder, projectId }))),
-  );
-  yield* writeFileIfChanged(
-    path.join(bot.path, "workspace", "AGENTS.md"),
-    renderSubBotInstructions(bot, codeProjects),
-  );
+  yield* refreshSubBotInstructions(deps, bot);
   const { projectId } = yield* ensureBotProject(deps, bot);
 
   yield* ensureMainBotInStateDir(deps.stateDir, yield* deps.store.getHomesByBot());

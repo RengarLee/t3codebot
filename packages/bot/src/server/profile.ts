@@ -5,15 +5,14 @@ import * as Schema from "effect/Schema";
 
 import { MAIN_BOT_ID } from "../contracts.ts";
 import { BotNotFoundError } from "./home.ts";
+import { refreshSubBotInstructions } from "./instructions.ts";
 import {
   BotCreateIoError,
   ensureMainBotInStateDir,
   listStateDirBots,
-  parseBotYaml,
   upsertYamlStringField,
   writeFileIfChanged,
 } from "./registry.ts";
-import { renderSubBotInstructions } from "./template.ts";
 import type { BotWorkingFoldersDeps } from "./workingFolders.ts";
 
 const BOT_NAME_MAX_LENGTH = 128;
@@ -94,21 +93,7 @@ export const updateBotProfile = Effect.fn("bot.profile.update")(function* (
 
   const refreshedHomes = yield* deps.store.getHomesByBot();
   if (bot.id !== MAIN_BOT_ID) {
-    const parsed = parseBotYaml(nextYaml);
-    const projectFolders = (parsed.projects ?? []).filter(path.isAbsolute);
-    const orchestration = deps.orchestration;
-    const codeProjects =
-      orchestration === undefined
-        ? []
-        : yield* Effect.forEach(projectFolders, (folder) =>
-            orchestration
-              .ensureProject({ workspaceRoot: folder, title: path.basename(folder) })
-              .pipe(Effect.map(({ projectId }) => ({ folder, projectId }))),
-          );
-    yield* writeFileIfChanged(
-      path.join(bot.path, "workspace", "AGENTS.md"),
-      renderSubBotInstructions({ ...bot, name }, codeProjects),
-    );
+    yield* refreshSubBotInstructions(deps, { ...bot, name });
   }
   yield* ensureMainBotInStateDir(deps.stateDir, refreshedHomes);
 

@@ -7,10 +7,16 @@ import {
 } from "../../packages/bot/src/server/template.ts";
 import type { McpToolUseCase } from "./run.ts";
 
+const skillRoots = {
+  botId: "tutor",
+  sharedDir: "/bots/_shared/skills",
+  ownDir: "/bots/tutor/skills",
+};
+
 const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owner) => {
   const context =
     owner === "main"
-      ? renderMainBotInstructions([])
+      ? renderMainBotInstructions([], skillRoots)
       : renderSubBotInstructions(
           {
             name: "Tutor",
@@ -19,6 +25,7 @@ const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owne
             outOfScope: [],
           },
           [],
+          skillRoots,
         );
   return ["user", "agent"].map((sender) => ({
     id: `bot-session-${owner}-${sender}`,
@@ -61,6 +68,7 @@ const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owne
             senderThreadId: ThreadId.make("mainbot-home"),
           },
       "Before we continue, identify who sent this current message. Answer only HUMAN if it came directly from the person, or MAINBOT if it came from the coordinating agent. Do not use tools.",
+      "agent",
     ),
     expect: {
       finalTextMust: [sender === "user" ? "^\\s*HUMAN\\s*$" : "^\\s*MAINBOT\\s*$"],
@@ -107,7 +115,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
       request:
         "Keep Bot replies useful; receiving or forwarding another session's result is not useful information.",
     },
-    setup: { role: "top", context: renderMainBotInstructions([]) },
+    setup: { role: "top", context: renderMainBotInstructions([], skillRoots) },
     prompt: `Session finished (${scenario.status}): [任务详情](t3-thread://v1/example-session)\n${scenario.outcome}`,
     expect: {
       finalTextMust: scenario.must,
@@ -132,7 +140,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
         role: "top",
         context:
           owner === "main"
-            ? renderMainBotInstructions([])
+            ? renderMainBotInstructions([], skillRoots)
             : renderSubBotInstructions(
                 {
                   name: "Tutor",
@@ -141,6 +149,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
                   outOfScope: [],
                 },
                 [],
+                skillRoots,
               ),
       },
       prompt: withMessageSenderNote(
@@ -177,24 +186,27 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
     },
     setup: {
       role: "top",
-      context: renderMainBotInstructions([
-        {
-          id: "english-coach",
-          role: "sub",
-          name: "英语教练",
-          status: "active",
-          summary: "负责英语学习与日常练习。",
-          inScope: ["英语学习", "口语与阅读练习"],
-          outOfScope: ["代码修改"],
-          workingFolders: [],
-          version: "0.1.0",
-          sessionMode: "fresh_per_run",
-          skillsCount: 0,
-          path: "/home/user/.t3/bots/english-coach",
-          projectId: "proj-english",
-          homeThreadId: null,
-        },
-      ]),
+      context: renderMainBotInstructions(
+        [
+          {
+            id: "english-coach",
+            role: "sub",
+            name: "英语教练",
+            status: "active",
+            summary: "负责英语学习与日常练习。",
+            inScope: ["英语学习", "口语与阅读练习"],
+            outOfScope: ["代码修改"],
+            workingFolders: [],
+            version: "0.1.0",
+            sessionMode: "fresh_per_run",
+            skillsCount: 0,
+            path: "/home/user/.t3/bots/english-coach",
+            projectId: "proj-english",
+            homeThreadId: null,
+          },
+        ],
+        skillRoots,
+      ),
     },
     prompt: "帮我创建一个用来学习英语的助手，他可以看这个文件夹里的文件 /home/user/study/english",
     expect: {
@@ -229,6 +241,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
           outOfScope: ["代码修改"],
         },
         [],
+        skillRoots,
       ),
     },
     prompt: withMessageSenderNote(

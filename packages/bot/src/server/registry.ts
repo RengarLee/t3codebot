@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 
 import { MAIN_BOT_ID, type BotListResponse, type BotSummary } from "../contracts.ts";
 import type { BotHome } from "./db.ts";
+import { botSkillRoots } from "./skillRoots.ts";
 import { resolveBotStoragePaths } from "./storage.ts";
 import { renderBotFiles, renderMainBotInstructions, renderSessionLog } from "./template.ts";
 
@@ -365,7 +366,7 @@ export const ensureMainBotInStateDir = Effect.fn("bot.ensureMainBot")(function* 
     }));
   yield* writeFileIfChanged(
     path.join(main.path, "workspace", "AGENTS.md"),
-    renderMainBotInstructions(routableSubBots(bots)),
+    renderMainBotInstructions(routableSubBots(bots), botSkillRoots(path, main)),
   );
   const sessionLog = path.join(main.path, "workspace", "SESSIONS.md");
   if (!(yield* isFile(sessionLog))) yield* writeFileIfChanged(sessionLog, renderSessionLog([]));

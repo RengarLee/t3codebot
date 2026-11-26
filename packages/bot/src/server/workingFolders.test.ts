@@ -49,6 +49,7 @@ function makeHost(options?: { readonly failSync?: boolean }) {
     sendMessage: () => Effect.die("unused"),
     settleThread: () => Effect.void,
     readRunResult: () => Effect.succeed(null),
+    readThreadMessages: () => Effect.succeed(null),
     subscribeThreadEvents: () => Stream.empty,
   };
   return { orchestration, projectsByRoot, synced };
@@ -110,16 +111,19 @@ describe("bot working folders", () => {
           [notesDir, reportsDir, notesDir],
         );
         expect(updatedMain.workingFolders).toEqual([notesDir, reportsDir]);
-        expect(host.synced).toEqual([
-          {
-            projectId: updatedMain.projectId!,
-            folders: [
-              { path: notesDir, name: "notes" },
-              { path: reportsDir, name: "reports" },
-            ],
-          },
-        ]);
-        // Working folder paths stay decoupled from AGENTS.md (delivered at runtime via <workspace_folders>).
+        // The project always tracks the two skill folders so the agent may write them.
+        const skillFolders = [
+          { path: path.join(stateDir, "bots", "_shared", "skills"), name: "shared-skills" },
+          { path: path.join(stateDir, "bots", MAIN_BOT_ID, "skills"), name: "bot-skills" },
+        ];
+        expect(host.synced.at(-1)).toEqual({
+          projectId: updatedMain.projectId!,
+          folders: [
+            ...skillFolders,
+            { path: notesDir, name: "notes" },
+            { path: reportsDir, name: "reports" },
+          ],
+        });
         const updatedMainAgents = yield* fs.readFileString(mainAgentsPath);
         expect(updatedMainAgents).toContain("<workspace_folders>");
         expect(updatedMainAgents).not.toContain(notesDir);
@@ -163,6 +167,9 @@ describe("bot working folders", () => {
         const rosterAgents = yield* fs.readFileString(mainAgentsPath);
         expect(rosterAgents).not.toContain(reportsDir);
         expect(rosterAgents).not.toContain("Settings → Bots");
+        expect(subAgents).toContain(path.join(stateDir, "bots", "_shared", "skills"));
+        expect(subAgents).toContain(path.join(sub.path, "skills"));
+        expect(subAgents).toContain(`your bot id is \`${sub.id}\``);
       }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 
