@@ -98,7 +98,7 @@ export function BotFileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEdi
             if (dirty && !busy && saveState !== "conflict") void write(base.version);
           }
         }}
-        className="block min-h-48 w-full resize-y rounded-lg border border-border bg-background p-2.5 font-mono text-xs leading-normal text-foreground focus:border-ring focus:outline-none disabled:opacity-60"
+        className="block min-h-48 w-full resize-y rounded-lg border border-border bg-background p-2.5 font-mono text-xs leading-normal text-foreground focus:border-ring focus:outline-none disabled:opacity-64"
       />
       {saveState === "conflict" ? (
         <div

@@ -197,7 +197,7 @@ function FallbackAddFolderDialog({
               setDraftPath(event.currentTarget.value);
               if (error !== null) onClearError();
             }}
-            className="h-8 w-full rounded-lg border border-border bg-background px-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-60"
+            className="h-8 w-full rounded-lg border border-border bg-background px-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-64"
           />
           {error !== null ? (
             <p role="alert" className="text-xs text-destructive">
@@ -210,7 +210,7 @@ function FallbackAddFolderDialog({
             type="button"
             disabled={busy}
             onClick={onClose}
-            className="h-8 cursor-pointer rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted disabled:opacity-50"
+            className="h-8 cursor-pointer rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted disabled:opacity-64"
           >
             {t("bots.folders.cancel")}
           </button>
@@ -218,7 +218,7 @@ function FallbackAddFolderDialog({
             type="submit"
             disabled={busy || draftPath.trim().length === 0}
             data-testid="bot-folder-submit"
-            className="h-8 cursor-pointer rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:cursor-default disabled:opacity-50"
+            className="h-8 cursor-pointer rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:cursor-default disabled:opacity-64"
           >
             {t("bots.folders.addButton")}
           </button>
@@ -397,7 +397,7 @@ function BotDetailView({
             type="button"
             disabled={openingBotId !== null}
             onClick={() => void onOpenHome(bot.id, bot.projectId)}
-            className="h-7 cursor-pointer rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
+            className="h-7 cursor-pointer rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:cursor-default disabled:opacity-64"
           >
             {t("bots.list.open")}
           </button>
@@ -438,7 +438,7 @@ function BotDetailView({
                     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                     if (event.key === "Enter") event.currentTarget.blur();
                   }}
-                  className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground focus:border-ring focus:outline-none disabled:opacity-60"
+                  className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground focus:border-ring focus:outline-none disabled:opacity-64"
                 />
                 {nameError !== null ? (
                   <p role="alert" className="text-xs text-destructive">
@@ -475,7 +475,7 @@ function BotDetailView({
                   if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                   if (event.key === "Enter") event.currentTarget.blur();
                 }}
-                className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-60"
+                className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-64"
               />
               {summaryError !== null ? (
                 <p role="alert" className="text-xs text-destructive">
@@ -532,7 +532,7 @@ function BotDetailView({
                     setDialogError(null);
                     setIsAddingFolder(true);
                   }}
-                  className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+                  className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:cursor-default disabled:opacity-64"
                 >
                   <PlusGlyph />
                   <span>{t("bots.folders.addButton")}</span>
@@ -578,7 +578,7 @@ function BotDetailView({
                       disabled={isSavingFolders}
                       aria-label={`${t("bots.folders.remove")} ${label}`}
                       onClick={() => void removeFolder(folder)}
-                      className="h-7 shrink-0 cursor-pointer self-start rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-default disabled:opacity-50 sm:self-center"
+                      className="h-7 shrink-0 cursor-pointer self-start rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-default disabled:opacity-64 sm:self-center"
                     >
                       {t("bots.folders.remove")}
                     </button>
