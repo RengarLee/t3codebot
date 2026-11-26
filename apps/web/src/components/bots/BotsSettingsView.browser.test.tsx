@@ -1,4 +1,4 @@
-import type { BotSummary } from "@t3tools/bot/contracts";
+import type { BotSummary, BotUpdateProfileRequest } from "@t3tools/bot/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
 let currentBots: BotSummary[] = [];
@@ -11,10 +11,14 @@ const updateWorkingFoldersMock = vi.fn(
     return { bot: updated };
   },
 );
-const updateProfileMock = vi.fn(async (botId: string, input: { readonly name: string }) => {
+const updateProfileMock = vi.fn(async (botId: string, input: BotUpdateProfileRequest) => {
   const existing = currentBots.find((bot) => bot.id === botId);
   if (!existing) throw new Error("Bot not found");
-  const updated: BotSummary = { ...existing, name: input.name };
+  const updated: BotSummary = {
+    ...existing,
+    name: input.name ?? existing.name,
+    summary: input.summary ?? existing.summary,
+  };
   currentBots = currentBots.map((bot) => (bot.id === botId ? updated : bot));
   return { bot: updated };
 });
