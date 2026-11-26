@@ -45,6 +45,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: main
           sparse-checkout: |
             /packages/bot/upstream-sync.json
             /scripts/bot-upstream-sync.ts
@@ -246,7 +247,6 @@ jobs:
           SYNC_CHANNEL: ${{ needs.check_upstream.outputs.sync_channel }}
           SYNC_SHA: ${{ needs.prepare_sync.outputs.sync_sha }}
           UPSTREAM_TAG: ${{ needs.check_upstream.outputs.upstream_tag }}
-          RUN_DATE: ${{ github.run_started_at }}
         run: |
           set -euo pipefail
           git config user.name "t3codebot-sync[bot]"
@@ -259,7 +259,7 @@ jobs:
           git push origin main
           echo "release_sha=$SYNC_SHA" >> "$GITHUB_OUTPUT"
 
-          release_date="$(date -u -d "$RUN_DATE" +%Y%m%d)"
+          release_date="$(date -u +%Y%m%d)"
           meta_out="$(node scripts/bot-release-version.ts \
             --channel "${SYNC_CHANNEL:-nightly}" \
             --source upstream-sync \
