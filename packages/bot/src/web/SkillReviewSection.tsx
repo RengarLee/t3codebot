@@ -79,7 +79,7 @@ export function SkillReviewSection({ httpBaseUrl, t, botId }: SkillReviewSection
             disabled={enabled === null || saving}
             data-testid="skill-review-toggle"
             onClick={() => void toggle()}
-            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-transparent outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-50 ${
+            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-transparent outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-64 ${
               enabled === true ? "bg-primary" : "bg-input"
             }`}
           >

@@ -16,6 +16,7 @@ import {
 import type { BotWorkingFoldersDeps } from "./workingFolders.ts";
 
 const BOT_NAME_MAX_LENGTH = 128;
+const BOT_SUMMARY_MAX_LENGTH = 500;
 
 export class BotProfileValidationError extends Schema.TaggedError<
   BotProfileValidationError,
@@ -29,12 +30,13 @@ export class BotProfileValidationError extends Schema.TaggedError<
 }
 
 export interface BotProfileUpdateInput {
-  readonly name: string;
+  readonly name?: string | undefined;
+  readonly summary?: string | undefined;
 }
 
 /**
- * Renames a bot in `bot.yaml`, updates its backing T3 project title when present,
- * and refreshes bot instructions so the main bot roster stays in sync.
+ * Renames a bot or changes its summary in `bot.yaml`, updates its backing T3 project title when
+ * present, and refreshes bot instructions so the main bot roster stays in sync.
  */
 export const updateBotProfile = Effect.fn("bot.profile.update")(function* (
   deps: BotWorkingFoldersDeps,
@@ -43,7 +45,14 @@ export const updateBotProfile = Effect.fn("bot.profile.update")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const name = input.name.trim();
+  const homes = yield* deps.store.getHomesByBot();
+  const { bots } = yield* listStateDirBots(deps.stateDir, homes);
+  const bot = bots.find((candidate) => candidate.id === botId);
+  if (bot === undefined) {
+    return yield* new BotNotFoundError({ botId });
+  }
+  const name = input.name?.trim() ?? bot.name;
+  const summary = input.summary?.trim() ?? bot.summary;
   if (name.length === 0) {
     return yield* new BotProfileValidationError({ detail: "Bot name cannot be empty." });
   }
@@ -52,12 +61,10 @@ export const updateBotProfile = Effect.fn("bot.profile.update")(function* (
       detail: `Bot name must be at most ${BOT_NAME_MAX_LENGTH} characters.`,
     });
   }
-
-  const homes = yield* deps.store.getHomesByBot();
-  const { bots } = yield* listStateDirBots(deps.stateDir, homes);
-  const bot = bots.find((candidate) => candidate.id === botId);
-  if (bot === undefined) {
-    return yield* new BotNotFoundError({ botId });
+  if (summary.length > BOT_SUMMARY_MAX_LENGTH) {
+    return yield* new BotProfileValidationError({
+      detail: `Bot summary must be at most ${BOT_SUMMARY_MAX_LENGTH} characters.`,
+    });
   }
   if (
     bot.role === "sub" &&
@@ -73,11 +80,11 @@ export const updateBotProfile = Effect.fn("bot.profile.update")(function* (
     });
   }
 
-  if (bot.name === name) {
+  if (bot.name === name && bot.summary === summary) {
     return bot;
   }
 
-  if (deps.orchestration !== undefined && bot.projectId !== null) {
+  if (bot.name !== name && deps.orchestration !== undefined && bot.projectId !== null) {
     yield* deps.orchestration.updateProjectTitle({
       projectId: bot.projectId,
       title: name,
@@ -88,12 +95,16 @@ export const updateBotProfile = Effect.fn("bot.profile.update")(function* (
   const currentYaml = yield* fs
     .readFileString(yamlPath)
     .pipe(Effect.mapError((cause) => new BotCreateIoError({ detail: String(cause) })));
-  const nextYaml = upsertYamlStringField(currentYaml, "name", name);
+  const nextYaml = upsertYamlStringField(
+    upsertYamlStringField(currentYaml, "name", name),
+    "summary",
+    summary,
+  );
   yield* writeFileIfChanged(yamlPath, nextYaml);
 
   const refreshedHomes = yield* deps.store.getHomesByBot();
   if (bot.id !== MAIN_BOT_ID) {
-    yield* refreshSubBotInstructions(deps, { ...bot, name });
+    yield* refreshSubBotInstructions(deps, { ...bot, name, summary });
   }
   yield* ensureMainBotInStateDir(deps.stateDir, refreshedHomes);
 

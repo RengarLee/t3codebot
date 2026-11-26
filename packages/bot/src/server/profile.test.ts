@@ -112,4 +112,35 @@ describe("bot profile updates", () => {
       expect(missingErr._tag).toBe("BotNotFoundError");
     }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
+
+  it.effect("changes a sub-bot's summary without renaming it and refreshes the roster", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fs.makeTempDirectoryScoped();
+      const store = yield* openBotStore(path.join(stateDir, "bots", "bots.sqlite"));
+      const host = makeHost();
+      const deps = { stateDir, store, orchestration: host.orchestration };
+
+      yield* ensureMainBotInStateDir(stateDir);
+      const sub = yield* createBotInStateDir(stateDir, { name: "Researcher", summary: "Reads." });
+      yield* store.upsertHome(sub.id, { homeThreadId: null, projectId: "proj-sub" });
+
+      const updated = yield* updateBotProfile(deps, sub.id, { summary: "  查资料，写摘要。 " });
+      expect(updated).toMatchObject({ name: "Researcher", summary: "查资料，写摘要。" });
+      expect(host.renamed).toEqual([]);
+
+      const mainAgents = yield* fs.readFileString(
+        path.join(stateDir, "bots", MAIN_BOT_ID, "workspace", "AGENTS.md"),
+      );
+      expect(mainAgents).toContain("| Researcher: 查资料，写摘要。 | proj-sub |");
+      const subAgents = yield* fs.readFileString(path.join(sub.path, "workspace", "AGENTS.md"));
+      expect(subAgents).toContain("查资料，写摘要。");
+
+      const tooLong = yield* Effect.flip(
+        updateBotProfile(deps, sub.id, { summary: "x".repeat(501) }),
+      );
+      expect(tooLong._tag).toBe("BotProfileValidationError");
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
 });

@@ -5,6 +5,8 @@ import * as Semaphore from "effect/Semaphore";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import {
+  BOT_FILE_COMMANDS,
+  BOT_FILES_ROUTE_PREFIX,
   BOT_HEALTH_ROUTE,
   BOT_HOME_ROUTE_PREFIX,
   BOT_LIST_ROUTE,
@@ -17,6 +19,7 @@ import {
   MAIN_BOT_ID,
   type BotHealthResponse,
 } from "../contracts.ts";
+import { runBotFileCommand } from "./botFiles.ts";
 import { openBotStore, type BotHome } from "./db.ts";
 import { startBotEventSyncWorker } from "./eventSync.ts";
 import { ensureBotHome, type BotHomeDeps } from "./home.ts";
@@ -64,10 +67,10 @@ function parseBotIdParam(originalUrl: string, routePrefix: string): string | nul
   return rest && !rest.includes("/") ? decodeURIComponent(rest) : null;
 }
 
-/** The `<command>` of `/api/bots/skills/<command>`; commands may hold one slash (`suggestions/accept`). */
-function parseSkillCommandParam(originalUrl: string): string | null {
+/** The `<command>` of `<routePrefix>/<command>`; commands may hold one slash (`suggestions/accept`). */
+function parseCommandParam(originalUrl: string, routePrefix: string): string | null {
   const pathname = new URL(originalUrl, "http://localhost").pathname;
-  const prefix = `${BOT_SKILLS_ROUTE_PREFIX}/`;
+  const prefix = `${routePrefix}/`;
   if (!pathname.startsWith(prefix)) return null;
   const rest = pathname.slice(prefix.length).replace(/\/+$/, "");
   return rest ? decodeURIComponent(rest) : null;
@@ -249,7 +252,7 @@ export const botHttpRoutesLayer = Layer.unwrap(
         if (rawBody._tag === "None") return jsonError("Invalid JSON request body.", 400);
         const decoded = yield* decodeUpdateProfileRequest(rawBody.value).pipe(Effect.option);
         if (decoded._tag === "None") {
-          return jsonError("Expected { name: string }.", 400);
+          return jsonError("Expected { name?: string, summary?: string }.", 400);
         }
         yield* ensureMainBot;
         const bot = yield* homeLock.withPermits(1)(
@@ -282,7 +285,7 @@ export const botHttpRoutesLayer = Layer.unwrap(
       `${BOT_SKILLS_ROUTE_PREFIX}/*`,
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const command = parseSkillCommandParam(request.originalUrl);
+        const command = parseCommandParam(request.originalUrl, BOT_SKILLS_ROUTE_PREFIX);
         if (command === null || !Object.values<string>(BOT_SKILL_COMMANDS).includes(command)) {
           return jsonError("Unknown skill command.", 404);
         }
@@ -304,6 +307,35 @@ export const botHttpRoutesLayer = Layer.unwrap(
       ),
     );
 
+    // Saves compare against the file on disk, so two saves must not interleave.
+    const filesLock = yield* Semaphore.make(1);
+
+    // POST /api/bots/files/<command>: a bot's persona, lessons, and memory files.
+    const filesRoute = HttpRouter.add(
+      "POST",
+      `${BOT_FILES_ROUTE_PREFIX}/*`,
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const command = parseCommandParam(request.originalUrl, BOT_FILES_ROUTE_PREFIX);
+        if (command === null || !Object.values<string>(BOT_FILE_COMMANDS).includes(command)) {
+          return jsonError("Unknown file command.", 404);
+        }
+        const rawBody = yield* request.json.pipe(Effect.option);
+        if (rawBody._tag === "None") return jsonError("Invalid JSON request body.", 400);
+        yield* ensureMainBot;
+        return jsonOk(
+          yield* filesLock.withPermits(1)(runBotFileCommand(stateDir, command, rawBody.value)),
+        );
+      }).pipe(
+        Effect.catchTags({
+          BotFileValidationError: (error) => Effect.succeed(jsonError(error.message, 400)),
+          BotNotFoundError: (error) => Effect.succeed(jsonError(error.message, 404)),
+          BotFileConflictError: (error) => Effect.succeed(jsonError(error.message, 409)),
+          BotCreateIoError: (error) => Effect.succeed(jsonError(error.message, 500)),
+        }),
+      ),
+    );
+
     return Layer.mergeAll(
       healthRoute,
       listBotsRoute,
@@ -311,6 +343,7 @@ export const botHttpRoutesLayer = Layer.unwrap(
       workingFoldersRoute,
       profileRoute,
       skillsRoute,
+      filesRoute,
     );
   }),
 );
