@@ -146,6 +146,7 @@ export const BotSubBotSpecSchema = Schema.Struct({
   outOfScope: Schema.Array(Schema.String),
   persona: Schema.String,
   projects: Schema.Array(Schema.String),
+  workingFolders: Schema.optional(Schema.Array(Schema.String)),
 });
 export type BotSubBotSpec = typeof BotSubBotSpecSchema.Type;
 
@@ -153,7 +154,7 @@ export type BotSubBotSpec = typeof BotSubBotSpecSchema.Type;
 export const BOT_SUB_BOT_SPEC_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["name", "summary", "inScope", "outOfScope", "persona", "projects"],
+  required: ["name", "summary", "inScope", "outOfScope", "persona", "projects", "workingFolders"],
   properties: {
     name: { type: "string", description: "Short display name, unique among sub-bots." },
     summary: { type: "string", description: "One sentence: what this sub-bot is for." },
@@ -173,6 +174,45 @@ export const BOT_SUB_BOT_SPEC_JSON_SCHEMA = {
       items: { type: "string" },
       description:
         "Absolute folder paths of the projects it may hand code work to. Empty when it does no code work.",
+    },
+    workingFolders: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Absolute local folder paths the user explicitly approved this sub-bot to read and work in directly. Empty when none were requested.",
+    },
+  },
+} as const;
+
+/** What an "Update working folders" session hands back; the bot server validates and applies it. */
+export const BotWorkingFoldersUpdateSchema = Schema.Struct({
+  botId: Schema.String,
+  add: Schema.Array(Schema.String),
+  remove: Schema.Array(Schema.String),
+});
+export type BotWorkingFoldersUpdate = typeof BotWorkingFoldersUpdateSchema.Type;
+
+/** `BotWorkingFoldersUpdateSchema` as the JSON Schema Home passes to `t3_thread_launch`. */
+export const BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["botId", "add", "remove"],
+  properties: {
+    botId: {
+      type: "string",
+      description: 'Target bot id ("main" for Bot itself, or the sub-bot botId from the roster).',
+    },
+    add: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Absolute local folder paths to grant this bot access to. Empty when only removing.",
+    },
+    remove: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Configured working folder paths to revoke from this bot. Empty when only adding.",
     },
   },
 } as const;

@@ -45,7 +45,7 @@ export const refreshSubBotInstructions = Effect.fn("bot.instructions.refreshSubB
         );
   yield* writeFileIfChanged(
     path.join(bot.path, "workspace", "AGENTS.md"),
-    renderSubBotInstructions(bot, codeProjects, bot.workingFolders, botSkillRoots(path, bot)),
+    renderSubBotInstructions(bot, codeProjects, botSkillRoots(path, bot)),
   );
 });
 

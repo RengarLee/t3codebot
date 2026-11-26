@@ -6,7 +6,12 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { BOT_WORKING_FOLDERS_MAX, MAIN_BOT_ID, type BotSummary } from "../contracts.ts";
+import {
+  BOT_WORKING_FOLDERS_MAX,
+  MAIN_BOT_ID,
+  type BotSummary,
+  type BotWorkingFoldersUpdate,
+} from "../contracts.ts";
 import { BotNotFoundError, ensureBotProject, type BotHomeDeps } from "./home.ts";
 import type { BotHostTrackedFolder } from "./host.ts";
 import { refreshSubBotInstructions } from "./instructions.ts";
@@ -84,7 +89,7 @@ export function botProjectFolders(
   ];
 }
 
-const normalizeWorkingFolders = Effect.fn("bot.workingFolders.normalize")(function* (
+export const normalizeWorkingFolders = Effect.fn("bot.workingFolders.normalize")(function* (
   workspaceRoot: string,
   rawFolders: ReadonlyArray<string>,
   existingFolders: ReadonlyArray<string>,
@@ -161,8 +166,8 @@ export interface BotWorkingFoldersDeps {
 }
 
 /**
- * Updates a bot's allowed working folders across `bot.yaml`, its T3 project's `trackedFolders`,
- * and its standing `workspace/AGENTS.md` instructions.
+ * Updates a bot's allowed working folders in `bot.yaml` and syncs its T3 project's `trackedFolders`
+ * so sessions receive them dynamically at runtime via `<workspace_folders>` and sandbox roots.
  */
 export const updateBotWorkingFolders = Effect.fn("bot.workingFolders.update")(function* (
   deps: BotWorkingFoldersDeps,
@@ -207,11 +212,10 @@ export const updateBotWorkingFolders = Effect.fn("bot.workingFolders.update")(fu
   yield* writeFileIfChanged(yamlPath, nextYaml);
 
   const refreshedHomes = yield* deps.store.getHomesByBot();
-  if (bot.id === MAIN_BOT_ID) {
-    yield* ensureMainBotInStateDir(deps.stateDir, refreshedHomes);
-  } else {
+  if (bot.id !== MAIN_BOT_ID) {
     yield* refreshSubBotInstructions(deps, { ...bot, workingFolders });
   }
+  yield* ensureMainBotInStateDir(deps.stateDir, refreshedHomes);
 
   const updated = (yield* listStateDirBots(deps.stateDir, refreshedHomes)).bots.find(
     (candidate) => candidate.id === botId,
@@ -220,4 +224,58 @@ export const updateBotWorkingFolders = Effect.fn("bot.workingFolders.update")(fu
     return yield* new BotNotFoundError({ botId });
   }
   return updated;
+});
+
+/**
+ * Applies a Home-requested add/remove delta to a bot's working folders without risking accidental
+ * overwrites of untouched folders.
+ */
+export const applyBotWorkingFoldersUpdate = Effect.fn("bot.workingFolders.applyUpdate")(function* (
+  deps: BotWorkingFoldersDeps,
+  update: BotWorkingFoldersUpdate,
+) {
+  const path = yield* Path.Path;
+  const targetKey = update.botId.trim();
+  if (targetKey.length === 0) {
+    return yield* new BotWorkingFoldersValidationError({
+      detail: "Target botId is required.",
+    });
+  }
+  if (update.add.length === 0 && update.remove.length === 0) {
+    return yield* new BotWorkingFoldersValidationError({
+      detail: "Specify at least one folder to add or remove.",
+    });
+  }
+
+  const homes = yield* deps.store.getHomesByBot();
+  const { bots } = yield* listStateDirBots(deps.stateDir, homes);
+  const bot =
+    bots.find((candidate) => candidate.id === targetKey) ??
+    bots.find((candidate) => candidate.projectId === targetKey) ??
+    (() => {
+      const lower = targetKey.toLowerCase();
+      const byName = bots.filter((candidate) => candidate.name.toLowerCase() === lower);
+      return byName.length === 1 ? byName[0] : undefined;
+    })();
+  if (bot === undefined) {
+    return yield* new BotNotFoundError({ botId: targetKey });
+  }
+
+  const removeKeys = new Set<string>();
+  for (const rawEntry of update.remove) {
+    const trimmed = rawEntry.trim();
+    if (trimmed.length === 0) {
+      return yield* new BotWorkingFoldersValidationError({
+        detail: "Folder path cannot be empty.",
+      });
+    }
+    const expanded = expandLeadingTilde(path, trimmed);
+    const resolved = path.isAbsolute(expanded) ? path.resolve(expanded) : expanded;
+    removeKeys.add(normalizeComparisonKey(path, resolved));
+  }
+
+  const kept = bot.workingFolders.filter(
+    (folder) => !removeKeys.has(normalizeComparisonKey(path, path.resolve(folder))),
+  );
+  return yield* updateBotWorkingFolders(deps, bot.id, [...kept, ...update.add]);
 });
