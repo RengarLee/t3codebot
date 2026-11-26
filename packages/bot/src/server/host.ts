@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type * as Stream from "effect/Stream";
+import type { BotSessionsRequest, BotSessionsResponse } from "../contracts.ts";
 
 export class BotHostError extends Schema.TaggedError<
   BotHostError,
@@ -137,6 +138,9 @@ export type BotHostThreadLifecycleEvent =
  * T3's native plugin host only swaps `apps/server/src/botHostAdapter.ts`.
  */
 export interface BotHostOrchestrationShape {
+  readonly readSessions: (
+    input: BotSessionsRequest & { readonly projectIds: ReadonlyArray<string> },
+  ) => Effect.Effect<BotSessionsResponse, BotHostError>;
   /** Returns the live project rooted at `workspaceRoot`, creating it (and the folder) when missing. */
   readonly ensureProject: (
     input: BotHostEnsureProjectInput,

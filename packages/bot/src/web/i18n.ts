@@ -1,5 +1,6 @@
 import { MEMORY_MESSAGES } from "./i18nMemory.ts";
 import { SKILL_MESSAGES } from "./i18nSkills.ts";
+import { SESSION_MESSAGES } from "./i18nSessions.ts";
 
 export const BOT_MESSAGES = {
   "bots.title": {
@@ -525,6 +526,7 @@ export const BOT_MESSAGES = {
     sv: "Den här boten kommer just nu bara åt sin egen arbetsmapp. Lägg till en mapp för att låta den arbeta någon annanstans.",
   },
   ...SKILL_MESSAGES,
+  ...SESSION_MESSAGES,
   ...MEMORY_MESSAGES,
 } as const;
 

@@ -19,6 +19,7 @@ function makeHost() {
   const renamed: Array<BotHostUpdateProjectTitleInput> = [];
   const projectsByRoot = new Map<string, string>();
   const orchestration: BotHostOrchestrationShape = {
+    readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
     ensureProject: ({ workspaceRoot }) =>
       Effect.sync(() => {
         const projectId = projectsByRoot.get(workspaceRoot) ?? `project:${projectsByRoot.size}`;

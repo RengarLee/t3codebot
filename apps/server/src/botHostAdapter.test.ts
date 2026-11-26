@@ -5,14 +5,72 @@ import {
   type OrchestrationV2ConversationMessage,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { describe, expect, it } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import { describe, expect, it } from "@effect/vitest";
 
-import { mapDomainEvent, toHostThreadMessages } from "./botHostAdapter.ts";
+import { mapDomainEvent, toHostThreadMessages, readBotSessionRows } from "./botHostAdapter.ts";
 
 const message = (fields: Record<string, unknown>) =>
   ({ streaming: false, ...fields }) as unknown as OrchestrationV2ConversationMessage;
 
 describe("bot host adapter", () => {
+  it.effect(
+    "reads cross-project creation chains, preserves the original sender, and pages history",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT PRIMARY KEY, project_id TEXT, created_at TEXT, deleted_at TEXT, payload_json TEXT)`;
+        yield* sql`CREATE TABLE orchestration_v2_projection_runs (thread_id TEXT, ordinal INTEGER, payload_json TEXT)`;
+        yield* sql`CREATE TABLE orchestration_v2_projection_messages (message_id TEXT PRIMARY KEY, payload_json TEXT)`;
+        yield* sql`INSERT INTO orchestration_v2_projection_threads VALUES
+        ('a','bot-a','01',NULL,'{"createdBy":"agent"}'),
+        ('b','bot-b','02',NULL,'{"createdBy":"agent"}'),
+        ('native','bot-b','03',NULL,'{"lineage":{"parentThreadId":"b"}}'),
+        ('unrelated','other-project','04',NULL,'{"lineage":{"parentThreadId":"home"}}'),
+        ('person','bot-a','05',NULL,'{"createdBy":"user"}'),
+        ('deleted','bot-a','06','07','{"lineage":{"parentThreadId":"home"}}')`;
+        yield* sql`INSERT INTO orchestration_v2_projection_runs VALUES
+        ('a',0,'{"userMessageId":"m1"}'),('a',1,'{"userMessageId":"m2"}'),
+        ('b',0,'{"userMessageId":"m3"}'),('person',0,'{"userMessageId":"m1"}')`;
+        yield* sql`INSERT INTO orchestration_v2_projection_messages VALUES
+        ('m1','{"senderThreadId":"home"}'),('m2','{"senderThreadId":"other-sender"}'),('m3','{"senderThreadId":"a"}')`;
+        const input = {
+          parentThreadId: ThreadId.make("home"),
+          descendants: false,
+          projectIds: ["bot-a", "bot-b"],
+        };
+        expect((yield* readBotSessionRows(input)).rows.map((row) => row.thread_id)).toEqual(["a"]);
+        expect(
+          (yield* readBotSessionRows({ ...input, descendants: true })).rows.map((row) => [
+            row.thread_id,
+            row.parent_id,
+          ]),
+        ).toEqual([
+          ["a", "home"],
+          ["b", "a"],
+          ["native", "b"],
+        ]);
+        yield* sql`INSERT INTO orchestration_v2_projection_threads VALUES ('missing-first','bot-a','08',NULL,'{"createdBy":"agent"}')`;
+        yield* sql`INSERT INTO orchestration_v2_projection_runs VALUES ('missing-first',0,'{"userMessageId":"missing"}'),('missing-first',1,'{"userMessageId":"m1"}')`;
+        expect((yield* readBotSessionRows(input)).rows.map((row) => row.thread_id)).toEqual(["a"]);
+        for (let index = 0; index < 42; index++) {
+          yield* sql`INSERT INTO orchestration_v2_projection_threads VALUES (${`history-${index.toString().padStart(2, "0")}`},'bot-a','10',NULL,'{"lineage":{"parentThreadId":"home"}}')`;
+        }
+        const first = yield* readBotSessionRows(input);
+        expect(first.hasMore).toBe(true);
+        expect(first.rows).toHaveLength(40);
+        const last = first.rows.at(-1);
+        if (last === undefined) throw new Error("Expected a history cursor");
+        const next = yield* readBotSessionRows({
+          ...input,
+          cursor: { createdAt: last.created_at, threadId: ThreadId.make(last.thread_id) },
+        });
+        expect(next.hasMore).toBe(false);
+        expect(next.rows.map((row) => row.thread_id)).toEqual(["history-01", "history-00", "a"]);
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
   it("hands the bot a run's submitted output value, not T3's output envelope", () => {
     const receipt = { status: "done", outcome: "Created bye.md.", artifacts: ["notes/bye.md"] };
     expect(

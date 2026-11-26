@@ -8,6 +8,9 @@ import {
   BOT_FILE_COMMANDS,
   BOT_FILES_ROUTE_PREFIX,
   BOT_HEALTH_ROUTE,
+  BOT_SESSIONS_ROUTE,
+  BotSessionsRequestSchema,
+  BotSessionsResponseSchema,
   BOT_HOME_ROUTE_PREFIX,
   BOT_LIST_ROUTE,
   BOT_PROFILE_ROUTE_PREFIX,
@@ -80,6 +83,8 @@ const decodeUpdateWorkingFoldersRequest = Schema.decodeUnknownEffect(
   BotUpdateWorkingFoldersRequestSchema,
 );
 const decodeUpdateProfileRequest = Schema.decodeUnknownEffect(BotUpdateProfileRequestSchema);
+const decodeSessionsRequest = Schema.decodeUnknownEffect(BotSessionsRequestSchema);
+const encodeSessionsResponse = Schema.encodeEffect(BotSessionsResponseSchema);
 
 /**
  * Single mount point for all bot HTTP routes under `/api/bots/*`.
@@ -157,6 +162,34 @@ export const botHttpRoutesLayer = Layer.unwrap(
         const { bots } = yield* listStateDirBots(stateDir);
         return jsonOk(createBotHealthPayload(bots.length));
       }),
+    );
+
+    const sessionsRoute = HttpRouter.add(
+      "POST",
+      BOT_SESSIONS_ROUTE,
+      Effect.gen(function* () {
+        if (homeDeps === null) return jsonError("Bot orchestration is unavailable.", 503);
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const input = yield* request.json.pipe(
+          Effect.flatMap(decodeSessionsRequest),
+          Effect.option,
+        );
+        if (input._tag === "None") return jsonError("Invalid session query.");
+        const homes = yield* store.getHomesByBot();
+        const projectIds = [...homes.values()].flatMap((home) =>
+          home.projectId === null ? [] : [home.projectId],
+        );
+        const parent = yield* homeDeps.orchestration.getThread(input.value.parentThreadId);
+        if (parent === null || !projectIds.includes(parent.projectId))
+          return jsonError("Session not found.", 404);
+        const result = yield* homeDeps.orchestration.readSessions({ ...input.value, projectIds });
+        return jsonOk(yield* encodeSessionsResponse(result));
+      }).pipe(
+        Effect.catchTags({
+          BotHostError: (error) => Effect.succeed(jsonError(error.message, 502)),
+          BotStoreError: (error) => Effect.succeed(jsonError(error.message, 500)),
+        }),
+      ),
     );
 
     const listBotsRoute = HttpRouter.add(
@@ -338,6 +371,7 @@ export const botHttpRoutesLayer = Layer.unwrap(
 
     return Layer.mergeAll(
       healthRoute,
+      sessionsRoute,
       listBotsRoute,
       homeRoute,
       workingFoldersRoute,
