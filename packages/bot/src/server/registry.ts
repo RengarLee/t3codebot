@@ -45,7 +45,7 @@ export interface BotCreateInput {
   readonly id?: string | undefined;
   readonly inScope?: ReadonlyArray<string> | undefined;
   readonly outOfScope?: ReadonlyArray<string> | undefined;
-  readonly persona?: string | undefined;
+  readonly instructions?: string | undefined;
   readonly projects?: ReadonlyArray<string> | undefined;
   readonly workingFolders?: ReadonlyArray<string> | undefined;
 }
@@ -306,7 +306,7 @@ export const createBotInStateDir = Effect.fn("bot.createInStateDir")(function* (
     summary: input.summary?.trim() ?? "",
     inScope: input.inScope ?? [],
     outOfScope: input.outOfScope ?? [],
-    persona: input.persona ?? "",
+    instructions: input.instructions,
     projects: input.projects ?? [],
     workingFolders: input.workingFolders ?? [],
     createdAt: DateTime.formatIso(yield* DateTime.now),

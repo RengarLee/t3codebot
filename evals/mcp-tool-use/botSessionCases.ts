@@ -1,6 +1,9 @@
 import { ThreadId, withMessageSenderNote } from "@t3tools/contracts";
 
-import { BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA } from "../../packages/bot/src/contracts.ts";
+import {
+  BOT_SESSION_RECEIPT_JSON_SCHEMA,
+  BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA,
+} from "../../packages/bot/src/contracts.ts";
 import {
   renderMainBotInstructions,
   renderSubBotInstructions,
@@ -13,7 +16,7 @@ const skillRoots = {
   ownDir: "/bots/tutor/skills",
 };
 
-const emptyNotes = { soul: "", policy: "", memory: "", user: "" };
+const emptyNotes = { instructions: "", memory: "", user: "" };
 
 const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owner) => {
   const context =
@@ -87,6 +90,30 @@ const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owne
 });
 
 export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
+  {
+    id: "bot-scheduled-no-action",
+    area: "bot-session",
+    kind: "bad",
+    pattern: "scheduled-quiet-result",
+    experience: "A routine scheduled check with no findings should not wake Home.",
+    source: { request: "Reuse native scheduled tasks for bots and suppress empty reports." },
+    setup: {
+      role: "top",
+      context: renderSubBotInstructions(
+        { name: "CI watcher", summary: "Checks CI.", inScope: ["CI checks"], outOfScope: [] },
+        [],
+        skillRoots,
+        emptyNotes,
+      ),
+    },
+    prompt:
+      "[T3 Code: scheduled task sent this prompt, not the user typing in this chat.] The CI check has completed successfully. There are no failures or changes to report. Finish the scheduled run; do not use tools.",
+    expect: {
+      finalTextMust: ["^\\s*NO_ACTION\\s*$"],
+      callsMustNot: [{ tool: "t3_thread_send" }, { tool: "t3_submit_output" }],
+    },
+    maxSteps: 2,
+  },
   ...senderCases,
   ...[
     {
@@ -262,6 +289,111 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
       callsMustNot: [{ tool: "t3_project_update" }, { tool: "t3_thread_send" }],
       finalTextMust: ['"status"\\s*:\\s*"needs_decision"', "/home/user/study/english"],
       textMustNot: ["Settings\\s*[→>-]+\\s*Bots", "设置\\s*[→>-]+\\s*Bots"],
+    },
+    maxSteps: 2,
+  },
+  {
+    id: "bot-home-dispatch-faithful",
+    area: "bot-session",
+    kind: "bad",
+    pattern: "home-dispatch-preserves-user-intent",
+    experience:
+      "When the user asks to start today's study, Home bloats the dispatched [Bot session] prompt by telling the sub-bot to summarize progress and offer 2-3 menu entry points.",
+    source: {
+      request:
+        "Keep Home dispatches faithful to the user's request without inventing unasked recaps or option menus.",
+    },
+    setup: {
+      role: "top",
+      context: renderMainBotInstructions(
+        [
+          {
+            id: "english-tutor",
+            role: "sub",
+            name: "英语学习助手",
+            status: "active",
+            summary: "负责用户的日常英语学习辅导与练习。",
+            inScope: ["日常英语课程辅导与阅读练习"],
+            outOfScope: ["代码修改"],
+            workingFolders: ["/home/user/study"],
+            version: "0.1.0",
+            sessionMode: "fresh_per_run",
+            skillsCount: 0,
+            path: "/home/user/.t3/bots/english-tutor",
+            projectId: "proj-english",
+            homeThreadId: null,
+          },
+        ],
+        skillRoots,
+        emptyNotes,
+      ),
+    },
+    prompt: "开始今天的英语学习",
+    expect: {
+      calls: [
+        {
+          tool: "t3_thread_launch",
+          args: {
+            projectId: "proj-english",
+            outputSchema: BOT_SESSION_RECEIPT_JSON_SCHEMA,
+          },
+        },
+      ],
+      callsMustNot: [
+        {
+          tool: "t3_thread_launch",
+          args: {
+            message: "re:(?:2-3|2–3|两三个|学习入口|供用户选择|概括当前进度|进度速览)",
+          },
+        },
+      ],
+    },
+    maxSteps: 4,
+  },
+  {
+    id: "bot-sub-direct-start-no-menu",
+    area: "bot-session",
+    kind: "bad",
+    pattern: "natural-direct-lesson-start",
+    experience:
+      "A sub-bot with a clear next lesson turns 'start today's lesson' into a chief-of-staff status recap with file paths and three menu entry points.",
+    source: {
+      request:
+        "Align bot response style with OpenBot's natural direct style instead of recapping history and offering unasked menus.",
+    },
+    setup: {
+      role: "top",
+      context: renderSubBotInstructions(
+        {
+          name: "英语学习助手",
+          summary: "负责用户的日常英语学习辅导与练习。",
+          inScope: ["日常英语课程辅导与阅读练习"],
+          outOfScope: ["代码修改"],
+        },
+        [],
+        skillRoots,
+        {
+          instructions: "像一个耐心、简洁的私人英语老师。",
+          user: "",
+          memory:
+            "- 当前课次：已完成第 3 周 A/B/C/D 四课，下节直接上第 3 周第 5 天综合应用（提供一段约 150 词自编 Stage 2 对话并问 1 个剧情理解问题）。\n",
+        },
+      ),
+    },
+    prompt: withMessageSenderNote(
+      { createdBy: "user", creationSource: "web" },
+      "开始今天的课程。请直接出题开课，不要使用工具。",
+      "agent",
+    ),
+    expect: {
+      callsMustNot: [{ tool: "t3_thread_send" }, { tool: "t3_submit_output" }],
+      finalTextMust: ["第\\s*3\\s*周.*第\\s*5\\s*天|综合应用"],
+      textMustNot: [
+        "(?:2|3|三)\\s*个.{0,6}(?:入口|选项|方向)",
+        "入口\\s*1",
+        "进度速览",
+        "MEMORY\\.md",
+      ],
     },
     maxSteps: 2,
   },

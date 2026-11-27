@@ -76,7 +76,7 @@ for (const fixture of cases) {
               ownDir: "/home/user/helper/skills",
               sharedDir: "/home/user/shared/skills",
             },
-            { soul: "", policy: "", memory: "", user: "- Always answer in Chinese.\n" },
+            { instructions: "", memory: "", user: "- Always answer in Chinese.\n" },
           ) +
           "\nUser: " +
           fixture.text

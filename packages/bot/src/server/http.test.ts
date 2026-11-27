@@ -13,7 +13,7 @@ import {
   BOT_FILES_ROUTE_PREFIX,
   BOT_HEALTH_ROUTE,
   BOT_LIST_ROUTE,
-  BOT_PERSONA_FILE,
+  BOT_INSTRUCTIONS_FILE,
   BOT_PROFILE_ROUTE_PREFIX,
   BOT_SESSION_RECEIPT_JSON_SCHEMA,
   BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA,
@@ -142,9 +142,10 @@ describe("bot server module", () => {
       expect(created.name).toBe("代码评审助手");
       expect(created.summary).toBe("盯 PR 和测试回归");
       expect(created.status).toBe("active");
-      for (const file of ["SOUL.md", "POLICY.md", "MEMORY.md"]) {
-        expect(yield* fs.exists(`${created.path}/${file}`)).toBe(true);
-      }
+      expect(yield* fs.exists(`${created.path}/SOUL.md`)).toBe(false);
+      expect(yield* fs.exists(`${created.path}/POLICY.md`)).toBe(false);
+      expect(yield* fs.exists(`${created.path}/INSTRUCTIONS.md`)).toBe(false);
+      expect(yield* fs.exists(`${created.path}/MEMORY.md`)).toBe(true);
 
       const duplicate = yield* Effect.exit(createBotInStateDir(stateDir, { name: "代码评审助手" }));
       expect(Exit.isFailure(duplicate)).toBe(true);
@@ -229,7 +230,7 @@ describe("bot server module", () => {
       const services = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
       const overwrite = {
         botId: MAIN_BOT_ID,
-        path: BOT_PERSONA_FILE,
+        path: BOT_INSTRUCTIONS_FILE,
         content: "pwned",
         expectedVersion: null,
       };
@@ -257,7 +258,7 @@ describe("bot server module", () => {
             const read = await handler(
               send(`${BOT_FILES_ROUTE_PREFIX}/read`, {
                 token: "operator",
-                body: { botId: MAIN_BOT_ID, path: BOT_PERSONA_FILE },
+                body: { botId: MAIN_BOT_ID, path: BOT_INSTRUCTIONS_FILE },
               }),
             );
             expect(read.status).toBe(200);

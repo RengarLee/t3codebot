@@ -1,11 +1,6 @@
 import { useState } from "react";
 
-import {
-  BOT_USER_MEMORY_FILE,
-  BOT_MEMORY_FILE,
-  BOT_PERSONA_FILE,
-  BOT_POLICY_FILE,
-} from "../contracts.ts";
+import { BOT_INSTRUCTIONS_FILE, BOT_MEMORY_FILE, BOT_USER_MEMORY_FILE } from "../contracts.ts";
 import { BotFileEditor } from "./BotFileEditor.tsx";
 import type { BotMessageKey, BotTranslator } from "./i18n.ts";
 import { SKILL_CARD_CLASS } from "./skillUi.tsx";
@@ -30,17 +25,18 @@ function SectionNote({ children }: { readonly children: string }) {
   );
 }
 
-export function BotPersonaSection({ botId, httpBaseUrl, t }: BotFileSectionProps) {
+export function BotInstructionsSection({ botId, httpBaseUrl, t }: BotFileSectionProps) {
   return (
-    <section className="space-y-2.5" data-testid={`bot-persona-${botId}`}>
-      <SectionHeading title={t("bots.persona.title")} />
+    <section className="space-y-2.5" data-testid={`bot-instructions-${botId}`}>
+      <SectionHeading title={t("bots.instructions.title")} />
       <div className={SKILL_CARD_CLASS}>
         <div>
-          <SectionNote>{t("bots.persona.description")}</SectionNote>
+          <SectionNote>{t("bots.instructions.description")}</SectionNote>
           <BotFileEditor
             botId={botId}
-            path={BOT_PERSONA_FILE}
-            label={t("bots.persona.title")}
+            path={BOT_INSTRUCTIONS_FILE}
+            label={t("bots.instructions.title")}
+            placeholder={t("bots.instructions.placeholder")}
             httpBaseUrl={httpBaseUrl}
             t={t}
           />
@@ -50,7 +46,7 @@ export function BotPersonaSection({ botId, httpBaseUrl, t }: BotFileSectionProps
   );
 }
 
-type MemoryTab = "bot" | "user" | "policy";
+type MemoryTab = "bot" | "user";
 
 const MEMORY_TABS: ReadonlyArray<{
   readonly id: MemoryTab;
@@ -67,7 +63,6 @@ const MEMORY_TABS: ReadonlyArray<{
     label: "bots.memory.tab.user",
     description: "bots.memory.user.description",
   },
-  { id: "policy", label: "bots.memory.tab.policy", description: "bots.memory.policy.description" },
 ];
 
 export function BotMemorySection({ botId, httpBaseUrl, t }: BotFileSectionProps) {
@@ -108,23 +103,13 @@ export function BotMemorySection({ botId, httpBaseUrl, t }: BotFileSectionProps)
         {MEMORY_TABS.map((entry) => (
           <div key={entry.id} role="tabpanel" hidden={entry.id !== tab}>
             <SectionNote>{t(entry.description)}</SectionNote>
-            {entry.id === "policy" ? (
-              <BotFileEditor
-                botId={botId}
-                path={BOT_POLICY_FILE}
-                label={t(entry.label)}
-                httpBaseUrl={httpBaseUrl}
-                t={t}
-              />
-            ) : (
-              <BotFileEditor
-                botId={botId}
-                path={entry.id === "bot" ? BOT_MEMORY_FILE : BOT_USER_MEMORY_FILE}
-                label={t(entry.label)}
-                httpBaseUrl={httpBaseUrl}
-                t={t}
-              />
-            )}
+            <BotFileEditor
+              botId={botId}
+              path={entry.id === "bot" ? BOT_MEMORY_FILE : BOT_USER_MEMORY_FILE}
+              label={t(entry.label)}
+              httpBaseUrl={httpBaseUrl}
+              t={t}
+            />
           </div>
         ))}
       </div>

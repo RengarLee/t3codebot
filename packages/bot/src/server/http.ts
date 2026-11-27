@@ -1,4 +1,12 @@
 import { migrateLegacyMemory } from "./legacyMemory.ts";
+
+import { runBotScheduleCommand } from "./schedules.ts";
+import {
+  BOT_SCHEDULES_ROUTE,
+  BotSchedulesRequestSchema,
+  BotScheduleUpdateSchema,
+  BotSchedulesResponseSchema,
+} from "../contracts.ts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -86,6 +94,7 @@ const decodeUpdateWorkingFoldersRequest = Schema.decodeUnknownEffect(
 const decodeUpdateProfileRequest = Schema.decodeUnknownEffect(BotUpdateProfileRequestSchema);
 const decodeSessionsRequest = Schema.decodeUnknownEffect(BotSessionsRequestSchema);
 const encodeSessionsResponse = Schema.encodeEffect(BotSessionsResponseSchema);
+const encodeSchedulesResponse = Schema.encodeEffect(BotSchedulesResponseSchema);
 
 /**
  * Single mount point for all bot HTTP routes under `/api/bots/*`.
@@ -379,7 +388,7 @@ export const botHttpRoutesLayer = Layer.unwrap(
       ),
     );
 
-    // POST /api/bots/files/<command>: a bot's persona, lessons, and memory files.
+    // POST /api/bots/files/<command>: a bot's instructions and memory files.
     const filesRoute = addAuthorizedRoute(
       "operate",
       "POST",
@@ -405,7 +414,35 @@ export const botHttpRoutesLayer = Layer.unwrap(
       ),
     );
 
+    const scheduleRoute = (update: boolean) =>
+      addAuthorizedRoute(
+        "operate",
+        "POST",
+        update ? `${BOT_SCHEDULES_ROUTE}/update` : BOT_SCHEDULES_ROUTE,
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const input = yield* request.json.pipe(
+            Effect.flatMap(
+              Schema.decodeUnknownEffect(
+                update ? BotScheduleUpdateSchema : BotSchedulesRequestSchema,
+              ),
+            ),
+            Effect.option,
+          );
+          if (input._tag === "None") return jsonError("Invalid scheduled task command.");
+          const result = yield* runBotScheduleCommand(host, store, input.value);
+          return jsonOk(yield* encodeSchedulesResponse(result));
+        }).pipe(
+          Effect.catchTags({
+            BotHostError: (error) => Effect.succeed(jsonError(error.message, 502)),
+            BotStoreError: (error) => Effect.succeed(jsonError(error.message, 500)),
+          }),
+        ),
+      );
+
     return Layer.mergeAll(
+      scheduleRoute(false),
+      scheduleRoute(true),
       healthRoute,
       sessionsRoute,
       listBotsRoute,

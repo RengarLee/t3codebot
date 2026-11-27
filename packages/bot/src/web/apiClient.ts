@@ -1,3 +1,8 @@
+import {
+  BOT_SCHEDULES_ROUTE,
+  BotSchedulesResponseSchema,
+  type BotScheduleUpdate,
+} from "../contracts.ts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -387,4 +392,12 @@ export function readBotFileHistory(
 }
 export function restoreBotFile(input: BotFileRestoreRequest, options?: BotApiClientOptions) {
   return postFileCommand("restore", input, BotFileResponseSchema, options);
+}
+
+export function listBotSchedules(botId: string, options?: BotApiClientOptions) {
+  return postCommand(BOT_SCHEDULES_ROUTE, { botId }, BotSchedulesResponseSchema, options);
+}
+
+export function updateBotSchedule(input: BotScheduleUpdate, options?: BotApiClientOptions) {
+  return postCommand(`${BOT_SCHEDULES_ROUTE}/update`, input, BotSchedulesResponseSchema, options);
 }

@@ -1,5 +1,11 @@
 import * as Schema from "effect/Schema";
-import { OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+import {
+  ModelSelection,
+  ScheduledTask,
+  ScheduledTaskId,
+  OrchestrationV2ThreadShell,
+  ThreadId,
+} from "@t3tools/contracts";
 
 export const BOT_SESSIONS_ROUTE = "/api/bots/sessions";
 export const BotSessionsRequestSchema = Schema.Struct({
@@ -166,7 +172,7 @@ export const BotSubBotSpecSchema = Schema.Struct({
   summary: Schema.String,
   inScope: Schema.Array(Schema.String),
   outOfScope: Schema.Array(Schema.String),
-  persona: Schema.String,
+  instructions: Schema.optional(Schema.String),
   projects: Schema.Array(Schema.String),
   workingFolders: Schema.optional(Schema.Array(Schema.String)),
 });
@@ -176,21 +182,33 @@ export type BotSubBotSpec = typeof BotSubBotSpecSchema.Type;
 export const BOT_SUB_BOT_SPEC_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["name", "summary", "inScope", "outOfScope", "persona", "projects", "workingFolders"],
+  required: [
+    "name",
+    "summary",
+    "inScope",
+    "outOfScope",
+    "instructions",
+    "projects",
+    "workingFolders",
+  ],
   properties: {
     name: { type: "string", description: "Short display name, unique among sub-bots." },
     summary: { type: "string", description: "One sentence: what this sub-bot is for." },
     inScope: {
       type: "array",
       items: { type: "string" },
-      description: "3-5 kinds of work it owns, split by workflow, not by topic.",
+      description: "2-5 short phrases of work it owns, split by workflow (used for Home routing).",
     },
     outOfScope: {
       type: "array",
       items: { type: "string" },
-      description: "Work it must not take, and where that work goes instead.",
+      description: "Short phrases of work it must not take, and where that work goes instead.",
     },
-    persona: { type: "string", description: "Two or three sentences: who it is and how it works." },
+    instructions: {
+      type: "string",
+      description:
+        "Concise standing instructions for this sub-bot's role, tone, and boundaries in the user's language (no generic boilerplate). When workingFolders already contain project docs, defer to them instead of inventing a conflicting syllabus. Empty when unnecessary.",
+    },
     projects: {
       type: "array",
       items: { type: "string" },
@@ -543,7 +561,7 @@ export const BOT_SKILL_COMMANDS = {
 } as const;
 export type BotSkillCommand = keyof typeof BOT_SKILL_COMMANDS;
 
-/** `POST /api/bots/files/<command>` reads and edits a bot's persona, policy, and memory files. */
+/** `POST /api/bots/files/<command>` reads and edits a bot's instructions and memory files. */
 export const BOT_FILES_ROUTE_PREFIX = `${BOT_API_PREFIX}/files` as const;
 
 export const BOT_FILE_COMMANDS = {
@@ -554,8 +572,8 @@ export const BOT_FILE_COMMANDS = {
 } as const;
 export type BotFileCommand = keyof typeof BOT_FILE_COMMANDS;
 
-export const BOT_PERSONA_FILE = "SOUL.md";
-export const BOT_POLICY_FILE = "POLICY.md";
+/** Optional per-bot standing instructions (role, tone, boundaries); starts empty with no boilerplate. */
+export const BOT_INSTRUCTIONS_FILE = "INSTRUCTIONS.md";
 /** One bot's memory: facts and preferences about its own work. */
 export const BOT_MEMORY_FILE = "MEMORY.md";
 /** Facts about the user as a person, shared by every bot (it lives in `_shared/`). */
@@ -569,8 +587,7 @@ export const BOT_MEMORY_HISTORY_LIMIT = 50;
  * bot; the others are in that bot's folder.
  */
 export const BotFilePathSchema = Schema.Literals([
-  BOT_PERSONA_FILE,
-  BOT_POLICY_FILE,
+  BOT_INSTRUCTIONS_FILE,
   BOT_MEMORY_FILE,
   BOT_USER_MEMORY_FILE,
 ]);
@@ -642,3 +659,27 @@ export const BotFileRestoreRequestSchema = Schema.Struct({
   expectedVersion: Schema.NullOr(Schema.String),
 });
 export type BotFileRestoreRequest = typeof BotFileRestoreRequestSchema.Type;
+
+export const BOT_SCHEDULES_ROUTE = "/api/bots/schedules";
+export const BotSchedulesRequestSchema = Schema.Struct({ botId: Schema.String });
+export const BotScheduleUpdateSchema = Schema.Union([
+  Schema.Struct({
+    botId: Schema.String,
+    id: ScheduledTaskId,
+    kind: Schema.Literal("enabled"),
+    enabled: Schema.Boolean,
+  }),
+  Schema.Struct({
+    botId: Schema.String,
+    id: ScheduledTaskId,
+    kind: Schema.Literal("model"),
+    modelSelection: ModelSelection,
+  }),
+]);
+export type BotScheduleUpdate = typeof BotScheduleUpdateSchema.Type;
+export const BotSchedulesResponseSchema = Schema.Struct({
+  tasks: Schema.Array(ScheduledTask),
+  timeZone: Schema.optional(Schema.String),
+  models: Schema.Array(ModelSelection),
+});
+export type BotSchedulesResponse = typeof BotSchedulesResponseSchema.Type;
