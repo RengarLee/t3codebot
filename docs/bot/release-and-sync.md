@@ -25,6 +25,7 @@ Dedicated bot-owned workflows (none touch upstream `.github/workflows/release.ym
    - If manual merge conflicts occur, it records the details in the job summary (and opens a tracking issue when Issues are enabled); if verification/E2E fails, it opens a Draft PR and leaves `main` untouched.
 
 2. `.github/workflows/bot-release.yml` + `.github/workflows/bot-release-win.yml`
+   - Pushes to `main`, including merged release PRs, run the full verification gate and automatically publish the next nightly version. Pushes to feature branches and `dev` do not trigger releases.
    - **Windows x64 only**: builds and verifies the Windows x64 desktop installer (NSIS `.exe` + `.blockmap`) and Windows x64 CLI archive (`t3-*.zip`), publishing them to GitHub Releases after verification. Nightly releases also update the desktop auto-update feed. macOS, Linux, and Windows arm64 builds remain disabled.
    - Manual `channel: stable` dispatches remain supported to publish a stable release (`v<major>.<minor>.<upstreamPatch * 100 + seq>`).
 
@@ -40,11 +41,11 @@ Dedicated bot-owned workflows (none touch upstream `.github/workflows/release.ym
 - **Release title convention**:
   - Upstream sync: `T3 Code Bot Nightly <version> (sync: <upstreamTag> · bot <botVersion>)`
   - Bot update: `T3 Code Bot Nightly <version> (bot <botVersion> · base <upstreamTag>)`
-- **How to publish a Bot update manually**:
+- **How to publish a Bot update**:
   1. Merge work-in-progress Bot PRs into `dev`, and open a PR from `dev` to `main` when ready to ship (all PRs targeting `main` or `dev` run `bot-verify.yml`).
   2. Bump `version` in `packages/bot/package.json` and merge your changes to `main`.
-  3. Open GitHub Actions → **Bot Release** → **Run workflow** on `main` (`channel: nightly`, leave `version` empty).
-  4. The workflow runs `bot-verify.yml`, auto-assigns the next daily nightly tag, builds and verifies the Windows desktop + CLI artifacts, and publishes the GitHub Release + `update-feed/nightly.json`.
+  3. The merge automatically starts **Bot Release**, which runs `bot-verify.yml`, assigns the next daily nightly tag, builds and verifies the Windows desktop + CLI artifacts, and publishes the GitHub Release + `update-feed/nightly.json`.
+  4. To rebuild an existing commit manually, open GitHub Actions → **Bot Release** → **Run workflow** on `main` (`channel: nightly`, leave `version` empty).
 
 ## 4. Optional Repository Configuration
 

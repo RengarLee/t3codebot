@@ -2,6 +2,8 @@ name: Bot Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*-nightly.*"
       - "v*.*.*"
