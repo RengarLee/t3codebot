@@ -58,7 +58,7 @@ describe("bot-release-version", () => {
       tag: "v0.1.1200",
       botVersion: "0.1.0",
       upstreamLabel: "v0.1.12",
-      releaseName: "T3 Code Bot v0.1.1200 (sync: v0.1.12 · bot 0.1.0)",
+      releaseName: "Steward v0.1.1200 (sync: v0.1.12 · bot 0.1.0)",
       isPrerelease: false,
       makeLatest: true,
     });
@@ -80,7 +80,7 @@ describe("bot-release-version", () => {
       tag: "v0.1.1201",
       botVersion: "0.2.0",
       upstreamLabel: "v0.1.12",
-      releaseName: "T3 Code Bot v0.1.1201 (bot 0.2.0 · base v0.1.12)",
+      releaseName: "Steward v0.1.1201 (bot 0.2.0 · base v0.1.12)",
       isPrerelease: false,
       makeLatest: true,
     });
@@ -126,7 +126,7 @@ describe("bot-release-version", () => {
       botVersion: "0.1.0",
       upstreamLabel: "v0.1.12-nightly.20261122.4900",
       releaseName:
-        "T3 Code Bot Nightly 0.1.12-nightly.20261122.2 (sync: v0.1.12-nightly.20261122.4900 · bot 0.1.0)",
+        "Steward Nightly 0.1.12-nightly.20261122.2 (sync: v0.1.12-nightly.20261122.4900 · bot 0.1.0)",
       isPrerelease: true,
       makeLatest: false,
     });
@@ -149,7 +149,7 @@ describe("bot-release-version", () => {
       botVersion: "0.2.0",
       upstreamLabel: "v0.1.12-nightly.20261122.4900",
       releaseName:
-        "T3 Code Bot Nightly 0.1.12-nightly.20261122.3 (bot 0.2.0 · base v0.1.12-nightly.20261122.4900)",
+        "Steward Nightly 0.1.12-nightly.20261122.3 (bot 0.2.0 · base v0.1.12-nightly.20261122.4900)",
       isPrerelease: true,
       makeLatest: false,
     });

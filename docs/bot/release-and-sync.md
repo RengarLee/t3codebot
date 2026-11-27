@@ -1,4 +1,4 @@
-# T3 Code Bot: Upstream Sync, Conflict Isolation & Automated Nightly Release (Windows)
+# Steward: Upstream Sync, Conflict Isolation & Automated Nightly Release (Windows)
 
 ## 1. Conflict-Isolation Architecture
 
@@ -26,6 +26,8 @@ Dedicated bot-owned workflows (none touch upstream `.github/workflows/release.ym
 
 2. `.github/workflows/bot-release.yml` + `.github/workflows/bot-release-win.yml`
    - **Windows x64 only**: builds and verifies the Windows x64 desktop installer (NSIS `.exe` + `.blockmap`) and Windows x64 CLI archive (`t3-*.zip`), publishing them to GitHub Releases after verification. Nightly releases also update the desktop auto-update feed. macOS, Linux, and Windows arm64 builds remain disabled.
+   - Before building, `scripts/bot-rebrand.ts` patches the CI checkout so the release installs as **Steward** (its own app id, name, icons and Electron profile) beside the official T3 Code, with usage analytics off. Upstream sources stay untouched; `scripts/bot-rebrand.test.ts` fails sync verification when an upstream change moves one of its anchors.
+   - Dispatch with `build_only: true` to build and verify an installer as a run artifact without publishing a release or moving the update feed, for example to test a branch.
    - Manual `channel: stable` dispatches remain supported to publish a stable release (`v<major>.<minor>.<upstreamPatch * 100 + seq>`).
 
 3. `.github/workflows/bot-sync-dev-pr.yml`
@@ -38,8 +40,8 @@ Dedicated bot-owned workflows (none touch upstream `.github/workflows/release.ym
   - Example: upstream desktop base `0.1.11` -> `v0.1.12-nightly.20261124.1`, `v0.1.12-nightly.20261124.2`, ...
 - **Inner bot version (`packages/bot/package.json`)**: Maintained independently (`0.1.0`, `0.1.1`, `0.2.0`, ...). Only bump it when Bot functionality changes; pure upstream syncs keep it unchanged.
 - **Release title convention**:
-  - Upstream sync: `T3 Code Bot Nightly <version> (sync: <upstreamTag> · bot <botVersion>)`
-  - Bot update: `T3 Code Bot Nightly <version> (bot <botVersion> · base <upstreamTag>)`
+  - Upstream sync: `Steward Nightly <version> (sync: <upstreamTag> · bot <botVersion>)`
+  - Bot update: `Steward Nightly <version> (bot <botVersion> · base <upstreamTag>)`
 - **How to publish a Bot update manually**:
   1. Merge work-in-progress Bot PRs into `dev`, and open a PR from `dev` to `main` when ready to ship (all PRs targeting `main` or `dev` run `bot-verify.yml`).
   2. Bump `version` in `packages/bot/package.json` and merge your changes to `main`.
@@ -53,4 +55,5 @@ Unsigned builds use the standard `GITHUB_TOKEN`. Automatic PR synchronization ad
 - `DEV_SYNC_TOKEN`: a fine-grained PAT scoped to this repository with **Contents: read and write** and **Pull requests: read and write**. It lets sync PRs trigger verification without the manual workflow approval required for PRs created by `GITHUB_TOKEN`. It must not bypass the `dev` ruleset. Keep **Allow auto-merge** enabled in repository settings.
 - `BOT_SYNC_TOKEN` remains an optional, separate credential for upstream promotion into `main`; the dev-sync credential does not change that pipeline's authentication.
 - When deploying this replacement, disable the old **Sync main into dev** workflow in GitHub Actions: its copy on `main` still attempts direct pushes until the next release includes the workflow removal.
+- Sign-in and T3 Connect (off by default): release builds read only the repository variables `CLERK_PUBLISHABLE_KEY`, `CLERK_JWT_TEMPLATE`, `CLERK_CLI_OAUTH_CLIENT_ID` and `T3CODE_RELAY_URL`, never T3's own values in `.env.example`. Leave them unset to hide sign-in and T3 Connect, or point them at your own Clerk instance and relay.
 - Windows Azure Trusted Signing (optional): secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`, `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`, `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`.

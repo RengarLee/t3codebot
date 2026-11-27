@@ -4,7 +4,7 @@ import * as NodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { applyRebrandEdit, BOT_REBRAND_EDITS } from "./bot-rebrand.ts";
+import { applyRebrandEdit, BOT_REBRAND_COPIES, BOT_REBRAND_EDITS } from "./bot-rebrand.ts";
 
 const repoRoot = NodePath.resolve(import.meta.dirname, "..");
 
@@ -13,6 +13,11 @@ describe("bot-rebrand", () => {
   it.each(BOT_REBRAND_EDITS)("finds exactly one anchor in $file", (edit) => {
     const source = NodeFS.readFileSync(NodePath.join(repoRoot, edit.file), "utf8");
     expect(applyRebrandEdit(source, edit)).toContain(edit.to);
+  });
+
+  it.each(BOT_REBRAND_COPIES)("replaces existing asset $to", (copy) => {
+    expect(NodeFS.existsSync(NodePath.join(repoRoot, copy.from))).toBe(true);
+    expect(NodeFS.existsSync(NodePath.join(repoRoot, copy.to))).toBe(true);
   });
 
   it("refuses a missing or repeated anchor", () => {

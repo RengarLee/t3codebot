@@ -213,24 +213,24 @@ export function resolveBotReleaseVersion(
       const detail = upstreamLabel
         ? `sync: ${upstreamLabel} · bot ${botVersion}`
         : `sync · bot ${botVersion}`;
-      releaseName = `T3 Code Bot Nightly ${version} (${detail})`;
+      releaseName = `Steward Nightly ${version} (${detail})`;
     } else {
       const detail = upstreamLabel
         ? `bot ${botVersion} · base ${upstreamLabel}`
         : `bot ${botVersion}${shortSha ? ` · ${shortSha}` : ""}`;
-      releaseName = `T3 Code Bot Nightly ${version} (${detail})`;
+      releaseName = `Steward Nightly ${version} (${detail})`;
     }
   } else {
     if (input.source === "upstream-sync") {
       const detail = upstreamLabel
         ? `sync: ${upstreamLabel} · bot ${botVersion}`
         : `sync · bot ${botVersion}`;
-      releaseName = `T3 Code Bot v${version} (${detail})`;
+      releaseName = `Steward v${version} (${detail})`;
     } else {
       const detail = upstreamLabel
         ? `bot ${botVersion} · base ${upstreamLabel}`
         : `bot ${botVersion}${shortSha ? ` · ${shortSha}` : ""}`;
-      releaseName = `T3 Code Bot v${version} (${detail})`;
+      releaseName = `Steward v${version} (${detail})`;
     }
   }
 
