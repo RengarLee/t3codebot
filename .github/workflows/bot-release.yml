@@ -177,9 +177,7 @@ jobs:
             --github-output
 
       - id: public_config
-        # .env.example holds T3's own Clerk and relay; Steward builds use only this repo's variables,
-        # and without them sign-in and T3 Connect stay hidden.
-        name: Resolve Clerk & Relay public config (repo vars only)
+        name: Resolve Clerk & Relay public config (repo vars or .env.example fallback)
         shell: bash
         env:
           VAR_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
@@ -188,10 +186,11 @@ jobs:
           VAR_RELAY_URL: ${{ vars.T3CODE_RELAY_URL }}
         run: |
           set -euo pipefail
-          clerk_publishable_key="${VAR_CLERK_PUBLISHABLE_KEY:-}"
-          clerk_jwt_template="${VAR_CLERK_JWT_TEMPLATE:-}"
-          clerk_cli_oauth_client_id="${VAR_CLERK_CLI_OAUTH_CLIENT_ID:-}"
-          relay_url="${VAR_RELAY_URL:-}"
+          env_example() { sed -n "s|^T3CODE_$1=||p" .env.example; }
+          clerk_publishable_key="${VAR_CLERK_PUBLISHABLE_KEY:-$(env_example CLERK_PUBLISHABLE_KEY)}"
+          clerk_jwt_template="${VAR_CLERK_JWT_TEMPLATE:-$(env_example CLERK_JWT_TEMPLATE)}"
+          clerk_cli_oauth_client_id="${VAR_CLERK_CLI_OAUTH_CLIENT_ID:-$(env_example CLERK_CLI_OAUTH_CLIENT_ID)}"
+          relay_url="${VAR_RELAY_URL:-$(env_example RELAY_URL)}"
 
           echo "clerk_publishable_key=$clerk_publishable_key" >> "$GITHUB_OUTPUT"
           echo "clerk_jwt_template=$clerk_jwt_template" >> "$GITHUB_OUTPUT"

@@ -29,9 +29,16 @@ Steward and T3 Code share the same data folder, `~/.t3`. Threads you create in o
 - **Use T3 Code Nightly.** Steward follows T3 Code's nightly builds and can upgrade the shared database. Older T3 Code releases may not open it afterwards.
 - **Back up before the first launch.** Copy `~/.t3/userdata/statev2.sqlite` somewhere safe before you open Steward for the first time.
 
+## Using it from your phone
+
+There is no Steward phone app. Use the official T3 Code app for [iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824) or [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code). It connects to Steward as it would to any T3 Code computer.
+
+- **Connect** by scanning Steward's pairing QR code over your local network or Tailscale, or through T3 Connect by signing in to the same T3 account on both. T3 Connect is T3's own service and account system. Steward only uses it.
+- **Bot threads work as normal threads.** You can chat with the bot's Home thread and its helpers and approve their actions. The bot's settings, persona, and memory editors are only in the desktop app.
+- **Versions can drift.** Steward follows T3 Code's nightly builds. If the store app is older, it may say the client is not supported until it updates.
+
 ## What is different from T3 Code
 
-- **No T3 account or T3 Connect.** Steward does not sign in to T3's services. To reach it from another device, connect over your local network or Tailscale.
 - **No usage analytics.** Steward sends no usage data.
 
 ## License
