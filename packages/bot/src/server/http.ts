@@ -1,3 +1,4 @@
+import { migrateLegacyMemory } from "./legacyMemory.ts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -22,7 +23,7 @@ import {
   MAIN_BOT_ID,
   type BotHealthResponse,
 } from "../contracts.ts";
-import { runBotFileCommand } from "./botFiles.ts";
+import { makeBotFileService } from "./botFiles.ts";
 import { openBotStore, type BotHome } from "./db.ts";
 import { startBotEventSyncWorker } from "./eventSync.ts";
 import { ensureBotHome, type BotHomeDeps } from "./home.ts";
@@ -118,8 +119,24 @@ export const botHttpRoutesLayer = Layer.unwrap(
       );
     yield* ensureMainBot;
 
+    for (const bot of (yield* listStateDirBots(stateDir)).bots) {
+      yield* migrateLegacyMemory(bot.path, bot.id, store);
+    }
+    yield* ensureMainBot;
+
+    const botFiles = yield* makeBotFileService(
+      stateDir,
+      store,
+      ensureMainBot.pipe(
+        Effect.andThen(
+          refreshBotsForSkills({ stateDir, store, orchestration: host.orchestration }),
+        ),
+      ),
+    );
+
     // Background review of chats; its timers and loop live as long as this layer.
-    const skillReview = homeDeps === null ? undefined : yield* makeSkillReview(homeDeps);
+    const skillReview =
+      homeDeps === null ? undefined : yield* makeSkillReview(homeDeps, { botFiles });
 
     const skillDeps: SkillCommandDeps = {
       stateDir,
@@ -362,9 +379,6 @@ export const botHttpRoutesLayer = Layer.unwrap(
       ),
     );
 
-    // Saves compare against the file on disk, so two saves must not interleave.
-    const filesLock = yield* Semaphore.make(1);
-
     // POST /api/bots/files/<command>: a bot's persona, lessons, and memory files.
     const filesRoute = addAuthorizedRoute(
       "operate",
@@ -379,11 +393,10 @@ export const botHttpRoutesLayer = Layer.unwrap(
         const rawBody = yield* request.json.pipe(Effect.option);
         if (rawBody._tag === "None") return jsonError("Invalid JSON request body.", 400);
         yield* ensureMainBot;
-        return jsonOk(
-          yield* filesLock.withPermits(1)(runBotFileCommand(stateDir, command, rawBody.value)),
-        );
+        return jsonOk(yield* botFiles.command(command, rawBody.value));
       }).pipe(
         Effect.catchTags({
+          BotStoreError: (error) => Effect.succeed(jsonError(error.message, 500)),
           BotFileValidationError: (error) => Effect.succeed(jsonError(error.message, 400)),
           BotNotFoundError: (error) => Effect.succeed(jsonError(error.message, 404)),
           BotFileConflictError: (error) => Effect.succeed(jsonError(error.message, 409)),

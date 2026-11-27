@@ -13,6 +13,7 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import { MAIN_BOT_ID, SKILL_REVIEW_JSON_SCHEMA, SKILL_REVIEW_TITLE_PREFIX } from "../contracts.ts";
+import { makeBotFileService } from "./botFiles.ts";
 import { openBotStore, type BotStoreShape } from "./db.ts";
 import { applyThreadLifecycleEvent } from "./eventSync.ts";
 import type {
@@ -122,7 +123,15 @@ const setup = Effect.fn("test.setup")(function* (
     subscribeThreadEvents: () => Stream.empty,
   };
   const deps = { stateDir, store, orchestration };
-  const review = yield* makeSkillReview(deps, { policy }).pipe(
+  const refreshed: string[] = [];
+  const botFiles = yield* makeBotFileService(
+    stateDir,
+    store,
+    Effect.sync(() => {
+      refreshed.push("changed");
+    }),
+  );
+  const review = yield* makeSkillReview(deps, { policy, botFiles }).pipe(
     Scope.provide(options.reviewScope ?? (yield* Scope.Scope)),
   );
 
@@ -175,6 +184,8 @@ const setup = Effect.fn("test.setup")(function* (
   return {
     store,
     sqlitePath,
+    botFiles,
+    refreshed,
     stateDir,
     deps,
     review,
@@ -235,10 +246,10 @@ describe("background skill review policy", () => {
     }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 
-  it.effect("reviews an idle chat after ten minutes when three runs finished", () =>
+  it.effect("reviews an idle chat after ten minutes when one run finished", () =>
     Effect.gen(function* () {
       const fixture = yield* setup();
-      yield* fixture.completeRuns("t1", 3);
+      yield* fixture.completeRuns("t1", 1);
       yield* TestClock.adjust(IDLE_MS - 1);
       expect(fixture.launched).toEqual([]);
       yield* TestClock.adjust(1);
@@ -247,25 +258,27 @@ describe("background skill review policy", () => {
     }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 
-  it.effect("a new run restarts the idle wait, and two runs never trigger an idle review", () =>
-    Effect.gen(function* () {
-      const fixture = yield* setup({}, { chats: ["t1", "t2"] });
-      yield* fixture.completeRuns("t2", 2);
-      yield* fixture.completeRuns("t1", 3);
-      yield* TestClock.adjust(IDLE_MS - 1000);
-      yield* fixture.completeRuns("t1", 1);
-      yield* TestClock.adjust(IDLE_MS - 1);
-      expect(fixture.launched).toEqual([]);
-      yield* TestClock.adjust(1);
-      yield* fixture.nextLaunch;
-      // t2 only had two runs: it never got a timer, however long it stays quiet.
-      yield* fixture.answer("review-1", { skill: null });
-      yield* TestClock.adjust(IDLE_MS * 2);
-      yield* fixture.review.idle;
-      expect(fixture.launched.map((input) => input.clientRequestId)).toEqual([
-        "bot:skill-review:t1:m2",
-      ]);
-    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  it.effect(
+    "a new run restarts the idle wait, and chats without runs never trigger an idle review",
+    () =>
+      Effect.gen(function* () {
+        const fixture = yield* setup({}, { chats: ["t1", "t2"] });
+        yield* fixture.completeRuns("t2", 0);
+        yield* fixture.completeRuns("t1", 1);
+        yield* TestClock.adjust(IDLE_MS - 1000);
+        yield* fixture.completeRuns("t1", 1);
+        yield* TestClock.adjust(IDLE_MS - 1);
+        expect(fixture.launched).toEqual([]);
+        yield* TestClock.adjust(1);
+        yield* fixture.nextLaunch;
+        // t2 had no runs and has no timer.
+        yield* fixture.answer("review-1", { skill: null, memory: [] });
+        yield* TestClock.adjust(IDLE_MS * 2);
+        yield* fixture.review.idle;
+        expect(fixture.launched.map((input) => input.clientRequestId)).toEqual([
+          "bot:skill-review:t1:m2",
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 
   it.effect("restores idle timers for counts it kept across a restart", () =>
@@ -285,7 +298,7 @@ describe("background skill review policy", () => {
     Effect.gen(function* () {
       const reviewScope = yield* Scope.make();
       const fixture = yield* setup({}, { reviewScope });
-      yield* fixture.completeRuns("t1", 3);
+      yield* fixture.completeRuns("t1", 1);
       yield* Scope.close(reviewScope, Exit.void);
       yield* TestClock.adjust(IDLE_MS * 2);
       expect(fixture.launched).toEqual([]);
@@ -302,13 +315,13 @@ describe("background skill review policy", () => {
       expect(fixture.launched.map((input) => input.clientRequestId)).toEqual([
         "bot:skill-review:t1:m2",
       ]);
-      yield* fixture.answer("review-1", { skill: null });
+      yield* fixture.answer("review-1", { skill: null, memory: [] });
       yield* fixture.nextLaunch;
       expect(fixture.launched.map((input) => input.clientRequestId)).toEqual([
         "bot:skill-review:t1:m2",
         "bot:skill-review:t2:m2",
       ]);
-      yield* fixture.answer("review-2", { skill: null });
+      yield* fixture.answer("review-2", { skill: null, memory: [] });
       yield* fixture.nextLaunch;
       expect(fixture.launched).toHaveLength(3);
     }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
@@ -390,7 +403,7 @@ describe("background skill review policy", () => {
 });
 
 describe("background skill review result", () => {
-  it.effect("turns a valid answer into a suggestion for the bot's own skills", () =>
+  it.effect("preserves a pre-upgrade skill answer without memory operations", () =>
     Effect.gen(function* () {
       const fixture = yield* setup();
       yield* fixture.putSkill(fixture.roots.helper, "pdf-reports", OWN_SKILL);
@@ -432,6 +445,7 @@ describe("background skill review result", () => {
       yield* fixture.completeRuns("t1", 10);
       yield* fixture.nextLaunch;
       yield* fixture.answer("review-1", {
+        memory: [],
         skill: {
           action: "create",
           name: "landscape-reports",
@@ -450,7 +464,7 @@ describe("background skill review result", () => {
       const fixture = yield* setup();
       yield* fixture.completeRuns("t1", 10);
       yield* fixture.nextLaunch;
-      yield* fixture.answer("review-1", { skill: null });
+      yield* fixture.answer("review-1", { skill: null, memory: [] });
       expect(yield* pendingSuggestions(fixture.store)).toEqual([]);
       expect(yield* fixture.store.getSkillReviewCursor("t1")).toMatchObject({
         pendingRuns: 0,
@@ -482,6 +496,7 @@ describe("background skill review result", () => {
       yield* fixture.putSkill(fixture.roots.shared, "shared-secret", SHARED_SKILL);
       yield* fixture.putSkill(fixture.roots.helper, "pdf-reports", OWN_SKILL);
       const suggestion = (name: string) => ({
+        memory: [],
         skill: { action: "create", name, signal: "technique", message: "A lesson." },
       });
       yield* fixture.completeRuns("t1", 10);
@@ -501,6 +516,7 @@ describe("background skill review result", () => {
       const fixture = yield* setup({}, { chats: ["t1", "t2"] });
       yield* fixture.putSkill(fixture.roots.shared, "shared-secret", SHARED_SKILL);
       const update = (name: string) => ({
+        memory: [],
         skill: { action: "update", name, signal: "outdated_skill", message: "A lesson." },
       });
       yield* fixture.completeRuns("t1", 10);
@@ -518,6 +534,7 @@ describe("background skill review result", () => {
       const fixture = yield* setup({}, { chats: ["t1", "t2"] });
       yield* fixture.putSkill(fixture.roots.helper, "pdf-reports", OWN_SKILL);
       const update = {
+        memory: [],
         skill: { action: "update", name: "pdf-reports", signal: "correction", message: "Lesson." },
       };
       yield* fixture.completeRuns("t1", 10);
@@ -708,9 +725,9 @@ describe("background skill review switch and review now", () => {
       expect(fixture.launched.map((input) => input.clientRequestId)).toEqual([
         "bot:skill-review:t5:m2",
       ]);
-      yield* fixture.answer("review-1", { skill: null });
+      yield* fixture.answer("review-1", { skill: null, memory: [] });
       yield* fixture.nextLaunch;
-      yield* fixture.answer("review-2", { skill: null });
+      yield* fixture.answer("review-2", { skill: null, memory: [] });
       yield* fixture.nextLaunch;
       expect(fixture.launched.map((input) => input.clientRequestId)).toEqual([
         "bot:skill-review:t5:m2",
@@ -814,4 +831,77 @@ describe("background skill review excerpt", () => {
     });
     expect(prompt.match(/<\/chat>/g)).toHaveLength(1);
   });
+});
+
+describe("automatic memory", () => {
+  it.effect("persists user preferences with source and refreshes shared memory", () =>
+    Effect.gen(function* () {
+      const fixture = yield* setup();
+      fixture.addChat("t1", [
+        { id: "preference", role: "user", createdBy: "user", text: "Always answer in Chinese." },
+      ]);
+      yield* fixture.completeRuns("t1", 10);
+      yield* fixture.nextLaunch;
+      yield* fixture.answer("review-1", {
+        skill: null,
+        memory: [{ op: "add", scope: "user", old: "", text: "Prefers Chinese responses." }],
+      });
+      yield* fixture.review.idle;
+      expect((yield* fixture.botFiles.read("helper", "USER.md")).content).toContain(
+        "Prefers Chinese responses.",
+      );
+      expect(yield* fixture.store.latestMemoryRevision("shared")).toMatchObject({
+        threadId: "t1",
+        trigger: "review",
+      });
+      expect(fixture.refreshed).toEqual(["changed"]);
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+  it.effect("drops memory from reviews restored without a server snapshot", () =>
+    Effect.gen(function* () {
+      const fixture = yield* setup();
+      const before = yield* fixture.botFiles.read("helper", "USER.md");
+      yield* fixture.store.insertSkillReview({
+        reviewThreadId: "restored-review",
+        botId: "helper",
+        reviewedThreadId: "t1",
+        uptoMessageId: "m2",
+      });
+      yield* fixture.review.handleThreadEvent({
+        type: "run_output",
+        threadId: "restored-review",
+        runId: "restored-run",
+        output: {
+          skill: null,
+          memory: [{ op: "add", scope: "user", old: "", text: "Unverified preference." }],
+        },
+      });
+      expect(yield* fixture.botFiles.read("helper", "USER.md")).toEqual(before);
+      expect(yield* fixture.store.getSkillReview("restored-review")).toBeNull();
+      expect(fixture.refreshed).toEqual([]);
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+  it.effect("preserves manual saves made after the review snapshot", () =>
+    Effect.gen(function* () {
+      const fixture = yield* setup();
+      yield* fixture.completeRuns("t1", 10);
+      yield* fixture.nextLaunch;
+      const original = yield* fixture.botFiles.read("helper", "MEMORY.md");
+      yield* fixture.botFiles.command("save", {
+        botId: "helper",
+        path: "MEMORY.md",
+        expectedVersion: original.version,
+        content: "- Manual fact.\n",
+      });
+      yield* fixture.answer("review-1", {
+        skill: null,
+        memory: [{ op: "add", scope: "bot", old: "", text: "Old preference." }],
+      });
+      yield* fixture.review.idle;
+      expect((yield* fixture.botFiles.read("helper", "MEMORY.md")).content).toBe(
+        "- Manual fact.\n",
+      );
+      expect(yield* fixture.store.getSkillReview("review-1")).toBeNull();
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
 });

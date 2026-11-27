@@ -1,3 +1,4 @@
+import { readStandingNotes } from "./standingNotes.ts";
 // @effect-diagnostics nodeBuiltinImport:off -- Uses node:crypto for UUID v4 generation.
 import * as NodeCrypto from "node:crypto";
 
@@ -366,7 +367,11 @@ export const ensureMainBotInStateDir = Effect.fn("bot.ensureMainBot")(function* 
     }));
   yield* writeFileIfChanged(
     path.join(main.path, "workspace", "AGENTS.md"),
-    renderMainBotInstructions(routableSubBots(bots), botSkillRoots(path, main)),
+    renderMainBotInstructions(
+      routableSubBots(bots),
+      botSkillRoots(path, main),
+      yield* readStandingNotes(main.path),
+    ),
   );
   const sessionLog = path.join(main.path, "workspace", "SESSIONS.md");
   if (!(yield* isFile(sessionLog))) yield* writeFileIfChanged(sessionLog, renderSessionLog([]));
