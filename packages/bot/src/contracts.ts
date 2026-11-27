@@ -1,5 +1,11 @@
 import * as Schema from "effect/Schema";
-import { OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+import {
+  ModelSelection,
+  ScheduledTask,
+  ScheduledTaskId,
+  OrchestrationV2ThreadShell,
+  ThreadId,
+} from "@t3tools/contracts";
 
 export const BOT_SESSIONS_ROUTE = "/api/bots/sessions";
 export const BotSessionsRequestSchema = Schema.Struct({
@@ -642,3 +648,27 @@ export const BotFileRestoreRequestSchema = Schema.Struct({
   expectedVersion: Schema.NullOr(Schema.String),
 });
 export type BotFileRestoreRequest = typeof BotFileRestoreRequestSchema.Type;
+
+export const BOT_SCHEDULES_ROUTE = "/api/bots/schedules";
+export const BotSchedulesRequestSchema = Schema.Struct({ botId: Schema.String });
+export const BotScheduleUpdateSchema = Schema.Union([
+  Schema.Struct({
+    botId: Schema.String,
+    id: ScheduledTaskId,
+    kind: Schema.Literal("enabled"),
+    enabled: Schema.Boolean,
+  }),
+  Schema.Struct({
+    botId: Schema.String,
+    id: ScheduledTaskId,
+    kind: Schema.Literal("model"),
+    modelSelection: ModelSelection,
+  }),
+]);
+export type BotScheduleUpdate = typeof BotScheduleUpdateSchema.Type;
+export const BotSchedulesResponseSchema = Schema.Struct({
+  tasks: Schema.Array(ScheduledTask),
+  timeZone: Schema.optional(Schema.String),
+  models: Schema.Array(ModelSelection),
+});
+export type BotSchedulesResponse = typeof BotSchedulesResponseSchema.Type;

@@ -118,6 +118,7 @@ function renderPolicy(name: string): string {
 - Constraints for a single task stay in that session's thread, not in shared files.
 
 ## Red: ask the user first
+- Create or change a scheduled task without the user approving that schedule.
 - Sending anything outside (messages, email, posts), deleting or overwriting important files,
   money or permission changes.
 - Changing your persona, policy, or skills.
@@ -328,6 +329,19 @@ Sub-bots are specialists whose sessions you coordinate; the user may also talk d
   and report the self-test outcome once it finishes. Route matching future work to its
   \`projectId\` from then on.
 
+## Scheduled tasks (Home only)
+
+When the user asks for recurring work, use T3's \`schedule_task\` after they approve the
+schedule. Creating a sub-bot alone does not schedule anything. Target that sub-bot's
+\`projectId\` and use \`freshSession: true\` so each run starts with clean context.
+Include this rule in the task prompt: "If there is nothing to report, reply only NO_ACTION.
+Otherwise finish with a concise conclusion." Each trigger uses a model, even for NO_ACTION.
+The user can choose its model and pause or resume it in the bot detail page.
+Use T3's existing task tools to inspect, change, pause or remove the schedule. Do not create
+another timer or an operating-system scheduled job. User approval to schedule already grants
+permission for that schedule; do not ask twice. Results other than NO_ACTION reach Home for a
+brief reply. Runs execute on the server machine and use its timezone and missed-run behavior.
+
 ## Working folder updates (Home only)
 
 Only Home may grant or revoke a bot's working folders; sub-bots and sessions cannot expand their
@@ -426,6 +440,12 @@ ${renderStandingNotesSection(notes)}
 ## Conversation
 
 ${SESSION_CONVERSATION_RULES}
+
+## Scheduled runs
+
+When the current message comes from a scheduled task, follow its prompt. If nothing needs
+reporting, reply only \`NO_ACTION\`. Otherwise finish with a concise conclusion for Home.
+Do not create or modify schedules yourself; ask Home to obtain the user's decision.
 
 ## Scope
 

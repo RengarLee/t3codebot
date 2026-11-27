@@ -3,7 +3,12 @@ import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type * as Stream from "effect/Stream";
 import type { HttpServerRequest } from "effect/http";
-import type { BotSessionsRequest, BotSessionsResponse } from "../contracts.ts";
+import type {
+  BotScheduleUpdate,
+  BotSchedulesResponse,
+  BotSessionsRequest,
+  BotSessionsResponse,
+} from "../contracts.ts";
 
 export class BotHostError extends Schema.TaggedError<
   BotHostError,
@@ -99,6 +104,7 @@ export interface BotHostThreadRunResult {
   readonly isLatestRun: boolean;
   readonly status: string | null;
   readonly createdBy?: "user" | "agent" | null | undefined;
+  readonly scheduledTaskId?: string | undefined;
   readonly hasOutputSchema?: boolean | undefined;
   readonly assistantText: string | null;
   readonly output: unknown | null;
@@ -190,6 +196,13 @@ export class BotHostAuthError extends Schema.TaggedError<
 }
 
 export interface BotServerHostShape {
+  readonly schedules?: {
+    readonly list: (projectId: string) => Effect.Effect<BotSchedulesResponse, BotHostError>;
+    readonly update: (
+      projectId: string,
+      input: BotScheduleUpdate,
+    ) => Effect.Effect<void, BotHostError>;
+  };
   readonly stateDir: string;
   readonly orchestration?: BotHostOrchestrationShape | undefined;
   /** Accepts the request's credential for the access, as the host's own routes would. */

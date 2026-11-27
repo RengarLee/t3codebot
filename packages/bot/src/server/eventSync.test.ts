@@ -206,6 +206,23 @@ describe("bot session receipts", () => {
             },
           ],
         ]);
+        for (const [threadId, scheduledTaskId, assistantText, status] of [
+          ["quiet", "task-1", "  NO_ACTION\n", "completed"],
+          ["ordinary", undefined, "NO_ACTION", "completed"],
+          ["alert", "task-1", "CI failed.", "completed"],
+          ["failed-check", "task-1", "NO_ACTION", "failed"],
+        ] as const) {
+          resultsByThread.set(threadId, {
+            threadId,
+            runId: threadId,
+            isLatestRun: true,
+            status,
+            createdBy: scheduledTaskId === undefined ? "agent" : "user",
+            scheduledTaskId,
+            assistantText,
+            output: null,
+          });
+        }
         const orchestration: BotHostOrchestrationShape = {
           readSessions: () => Effect.succeed({ sessions: [], hasMore: false }),
           ensureProject: () => Effect.die("unused"),
@@ -242,6 +259,26 @@ describe("bot session receipts", () => {
         };
 
         yield* Fiber.join(yield* startBotEventSyncWorker({ stateDir, store, orchestration }));
+
+        for (const threadId of ["quiet", "ordinary", "alert", "failed-check"]) {
+          yield* applyThreadLifecycleEvent(
+            { stateDir, store, orchestration },
+            {
+              type: "run_status",
+              threadId,
+              runId: threadId,
+              status: threadId === "failed-check" ? "failed" : "completed",
+            },
+          );
+        }
+        expect(sent.slice(2).map((message) => message.clientRequestId)).toEqual([
+          "bot:receipt:ordinary",
+          "bot:receipt:alert",
+          "bot:receipt:failed-check",
+        ]);
+        expect(sent[3]?.text).toContain("CI failed.");
+        expect(sent[4]?.notification?.outcome).toBe("failed");
+        sent.splice(2);
 
         const receipts = yield* store.listSessionReceipts("main");
         expect(receipts.map(({ threadId, status }) => [threadId, status])).toEqual([
