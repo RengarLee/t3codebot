@@ -87,6 +87,30 @@ const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owne
 });
 
 export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
+  {
+    id: "bot-scheduled-no-action",
+    area: "bot-session",
+    kind: "bad",
+    pattern: "scheduled-quiet-result",
+    experience: "A routine scheduled check with no findings should not wake Home.",
+    source: { request: "Reuse native scheduled tasks for bots and suppress empty reports." },
+    setup: {
+      role: "top",
+      context: renderSubBotInstructions(
+        { name: "CI watcher", summary: "Checks CI.", inScope: ["CI checks"], outOfScope: [] },
+        [],
+        skillRoots,
+        emptyNotes,
+      ),
+    },
+    prompt:
+      "[T3 Code: scheduled task sent this prompt, not the user typing in this chat.] The CI check has completed successfully. There are no failures or changes to report. Finish the scheduled run; do not use tools.",
+    expect: {
+      finalTextMust: ["^\\s*NO_ACTION\\s*$"],
+      callsMustNot: [{ tool: "t3_thread_send" }, { tool: "t3_submit_output" }],
+    },
+    maxSteps: 2,
+  },
   ...senderCases,
   ...[
     {

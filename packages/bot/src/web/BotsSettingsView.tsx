@@ -1,3 +1,4 @@
+import { BotSchedulesSection } from "./BotSchedulesSection.tsx";
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import {
@@ -500,6 +501,14 @@ function BotDetailView({
           </div>
         </div>
       </section>
+
+      <BotSchedulesSection
+        locale={locale}
+        botId={bot.id}
+        httpBaseUrl={httpBaseUrl}
+        t={t}
+        onOpenThread={onOpenThread}
+      />
 
       <BotPersonaSection botId={bot.id} httpBaseUrl={httpBaseUrl} t={t} />
 

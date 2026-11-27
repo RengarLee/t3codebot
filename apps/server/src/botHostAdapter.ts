@@ -28,7 +28,9 @@ import * as Stream from "effect/Stream";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { HttpServerRequest } from "effect/http";
-import type { BotSessionsRequest } from "@t3tools/bot/contracts";
+import type { BotScheduleUpdate, BotSessionsRequest } from "@t3tools/bot/contracts";
+
+import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ServerConfig from "./config.ts";
@@ -195,6 +197,7 @@ const layerBotServerHostLive = Layer.effect(
   BotServerHost,
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
+    const schedules = yield* ScheduledTasks.ScheduledTaskService;
     const orchestrator = yield* OrchestratorV2.OrchestratorV2;
     const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
     const projections = yield* ProjectionStoreV2.ProjectionStoreV2;
@@ -424,6 +427,7 @@ const layerBotServerHostLive = Layer.effect(
             runUserMessage?.createdBy === "user" || runUserMessage?.createdBy === "agent"
               ? runUserMessage.createdBy
               : null,
+          scheduledTaskId: runUserMessage?.scheduledTaskId,
           hasOutputSchema: run.outputSchema !== undefined,
           assistantText: assistant?.text ?? null,
           output: run.output?.value ?? null,
@@ -450,6 +454,81 @@ const layerBotServerHostLive = Layer.effect(
 
     return {
       stateDir: config.stateDir,
+      schedules: {
+        list: Effect.fn("botHostAdapter.schedules.list")(function* (projectId: string) {
+          const result = yield* schedules
+            .list()
+            .pipe(Effect.mapError((cause) => toHostError("schedules.list", cause)));
+          const providers = yield* providerRegistry.getProviders;
+          return {
+            tasks: yield* Effect.forEach(
+              result.tasks.filter((task) => task.projectId === projectId),
+              (task) =>
+                task.threadId === null
+                  ? Effect.succeed(task)
+                  : projections.getThreadShell(task.threadId).pipe(
+                      Effect.map((thread) => ({
+                        ...task,
+                        modelSelection: thread?.modelSelection ?? task.modelSelection,
+                      })),
+                      Effect.orElseSucceed(() => task),
+                    ),
+            ),
+            ...(result.timeZone === undefined ? {} : { timeZone: result.timeZone }),
+            models: providers
+              .filter((provider) => provider.enabled)
+              .flatMap((provider) =>
+                provider.models.map((model) => ({
+                  instanceId: provider.instanceId,
+                  model: model.slug,
+                })),
+              ),
+          };
+        }),
+        update: Effect.fn("botHostAdapter.schedules.update")(function* (
+          projectId: string,
+          input: BotScheduleUpdate,
+        ) {
+          const result = yield* schedules
+            .list()
+            .pipe(Effect.mapError((cause) => toHostError("schedules.list", cause)));
+          const task = result.tasks.find(
+            (task) => task.id === input.id && task.projectId === projectId,
+          );
+          if (task === undefined)
+            return yield* new BotHostError({
+              operation: "schedules.update",
+              detail: "Scheduled task not found for this bot.",
+            });
+          if (input.kind === "enabled") {
+            yield* schedules
+              .setEnabled({ id: task.id, enabled: input.enabled })
+              .pipe(Effect.mapError((cause) => toHostError("schedules.update", cause)));
+          } else {
+            if (task.threadId !== null) {
+              const thread = yield* projections
+                .getThreadShell(task.threadId)
+                .pipe(Effect.mapError((cause) => toHostError("schedules.update", cause)));
+              if (thread === null || thread.projectId !== projectId)
+                return yield* new BotHostError({
+                  operation: "schedules.update",
+                  detail: "The scheduled thread moved to another project.",
+                });
+              yield* orchestrator
+                .dispatch({
+                  type: "thread.model-selection.set",
+                  commandId: CommandId.make(`bot:schedule-model:${yield* random.uuidV4()}`),
+                  threadId: task.threadId,
+                  modelSelection: input.modelSelection,
+                })
+                .pipe(Effect.mapError((cause) => toHostError("schedules.update", cause)));
+            }
+            yield* schedules
+              .upsert({ ...task, requireExisting: true, modelSelection: input.modelSelection })
+              .pipe(Effect.mapError((cause) => toHostError("schedules.update", cause)));
+          }
+        }),
+      },
       orchestration,
       authorize: makeBotRequestAuthorizer(auth),
     };

@@ -312,7 +312,7 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
 
   const latest = yield* deps.orchestration.readRunResult(event.threadId, event.runId);
   if (latest === null) return false;
-  if (latest.createdBy !== "agent") return false;
+  if (latest.createdBy !== "agent" && latest.scheduledTaskId === undefined) return false;
 
   const receipt = decodeReceipt(latest.output);
   if (receipt._tag === "Some") {
@@ -343,6 +343,7 @@ export const applyThreadLifecycleEvent = Effect.fn("bot.eventSync.applyEvent")(f
 
   const assistantDetail = latest.assistantText?.trim() ?? "";
   if (event.status === "completed") {
+    if (latest.scheduledTaskId !== undefined && assistantDetail === "NO_ACTION") return false;
     yield* deps.orchestration.sendMessage({
       threadId: session.homeThreadId,
       text: formatReceiptForHome(event.threadId, session.thread.title, {

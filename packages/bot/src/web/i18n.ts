@@ -1,3 +1,4 @@
+import { SCHEDULE_MESSAGES } from "./i18nSchedules.ts";
 import { MEMORY_MESSAGES } from "./i18nMemory.ts";
 import { SKILL_MESSAGES } from "./i18nSkills.ts";
 import { SESSION_MESSAGES } from "./i18nSessions.ts";
@@ -528,6 +529,7 @@ export const BOT_MESSAGES = {
   ...SKILL_MESSAGES,
   ...SESSION_MESSAGES,
   ...MEMORY_MESSAGES,
+  ...SCHEDULE_MESSAGES,
 } as const;
 
 export type BotMessageKey = keyof typeof BOT_MESSAGES;
