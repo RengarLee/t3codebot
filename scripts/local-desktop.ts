@@ -64,11 +64,15 @@ $remaining = @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($pre
 if ($remaining.Count) { throw 'Application processes are still running; update cancelled.' }
 New-Item -ItemType Directory -Path $backup | Out-Null
 if (Test-Path -LiteralPath $state) {
-  foreach ($db in Get-ChildItem -LiteralPath $state -Filter '*.sqlite' -Recurse) {
-    $handle = [IO.File]::Open($db.FullName, 'Open', 'Read', 'None')
-    $handle.Dispose()
+  $handles = [Collections.Generic.List[IDisposable]]::new()
+  try {
+    foreach ($db in Get-ChildItem -LiteralPath $state -Filter '*.sqlite*' -Recurse) {
+      $handles.Add([IO.File]::Open($db.FullName, 'Open', 'Read', 'Read'))
+    }
+    Copy-Item -LiteralPath $state -Destination (Join-Path $backup 'userdata') -Recurse
+  } finally {
+    foreach ($handle in $handles) { $handle.Dispose() }
   }
-  Copy-Item -LiteralPath $state -Destination (Join-Path $backup 'userdata') -Recurse
 }
 Copy-Item -LiteralPath $payload -Destination (Join-Path $backup 'new-application') -Recurse
 foreach ($uninstaller in Get-ChildItem -LiteralPath $install -Filter 'Uninstall *' -File) {
