@@ -1,12 +1,16 @@
 import {
+  BotHostAuthError,
   BotHostError,
   BotServerHost,
+  type BotRequestAccess,
   type BotHostOrchestrationShape,
   type BotHostThreadLifecycleEvent,
   type BotHostThreadMessage,
 } from "@t3tools/bot/server/host";
 import { botHttpRoutesLayer } from "@t3tools/bot/server/http";
 import {
+  AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
   CommandId,
   MessageId,
   ProjectId,
@@ -23,8 +27,10 @@ import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as SqlClient from "effect/sql/SqlClient";
+import type { HttpServerRequest } from "effect/http";
 import type { BotSessionsRequest } from "@t3tools/bot/contracts";
 
+import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ServerConfig from "./config.ts";
 import * as OrchestratorV2 from "./orchestration-v2/Orchestrator.ts";
 import * as ProjectStoreV2 from "./orchestration-v2/ProjectStore.ts";
@@ -159,6 +165,32 @@ export function toHostThreadMessages(
   );
 }
 
+const BOT_ACCESS_SCOPES = {
+  read: AuthOrchestrationReadScope,
+  operate: AuthOrchestrationOperateScope,
+} as const;
+
+/** Bot routes take the same credentials and scopes as the server's own orchestration routes. */
+export const makeBotRequestAuthorizer = (
+  auth: Pick<EnvironmentAuth.EnvironmentAuth["Service"], "authenticateHttpRequest">,
+) =>
+  Effect.fn("botHostAdapter.authorize")(function* (
+    request: HttpServerRequest.HttpServerRequest,
+    access: BotRequestAccess,
+  ) {
+    const session = yield* auth.authenticateHttpRequest(request).pipe(
+      Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, Effect.die),
+      Effect.mapError((error) => new BotHostAuthError({ status: 401, detail: error.message })),
+    );
+    const scope = BOT_ACCESS_SCOPES[access];
+    if (!session.scopes.includes(scope)) {
+      return yield* new BotHostAuthError({
+        status: 403,
+        detail: `This client's session lacks the ${scope} scope.`,
+      });
+    }
+  });
+
 const layerBotServerHostLive = Layer.effect(
   BotServerHost,
   Effect.gen(function* () {
@@ -171,6 +203,7 @@ const layerBotServerHostLive = Layer.effect(
     const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
     const random = yield* SecureRandom.SecureRandom;
     const sql = yield* SqlClient.SqlClient;
+    const auth = yield* EnvironmentAuth.EnvironmentAuth;
 
     const resolveFallbackModelSelection = Effect.gen(function* () {
       const providers = yield* providerRegistry.getProviders;
@@ -418,6 +451,7 @@ const layerBotServerHostLive = Layer.effect(
     return {
       stateDir: config.stateDir,
       orchestration,
+      authorize: makeBotRequestAuthorizer(auth),
     };
   }),
 );

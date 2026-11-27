@@ -1,4 +1,5 @@
 import {
+  AuthSessionId,
   EventId,
   RunId,
   ThreadId,
@@ -6,11 +7,18 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { describe, expect, it } from "@effect/vitest";
 
-import { mapDomainEvent, toHostThreadMessages, readBotSessionRows } from "./botHostAdapter.ts";
+import { ServerAuthMissingCredentialError } from "./auth/EnvironmentAuth.ts";
+import {
+  makeBotRequestAuthorizer,
+  mapDomainEvent,
+  readBotSessionRows,
+  toHostThreadMessages,
+} from "./botHostAdapter.ts";
 
 const message = (fields: Record<string, unknown>) =>
   ({ streaming: false, ...fields }) as unknown as OrchestrationV2ConversationMessage;
@@ -111,4 +119,28 @@ describe("bot host adapter", () => {
       { id: "m7", role: "user", text: "Unknown author", createdBy: null },
     ]);
   });
+  it.effect("lets bot requests through only with the server's credential and scope", () =>
+    Effect.gen(function* () {
+      const authorize = makeBotRequestAuthorizer({
+        authenticateHttpRequest: (request) =>
+          request.headers.authorization === "Bearer reader"
+            ? Effect.succeed({
+                sessionId: AuthSessionId.make("session-reader"),
+                subject: "reader",
+                method: "bearer-access-token",
+                scopes: ["orchestration:read"],
+              })
+            : Effect.fail(new ServerAuthMissingCredentialError({})),
+      });
+      const request = (headers: Record<string, string>) =>
+        HttpServerRequest.fromWeb(new Request("http://localhost/api/bots/list", { headers }));
+      const statusOf = (access: ReturnType<typeof authorize>) =>
+        access.pipe(Effect.match({ onSuccess: () => 200, onFailure: (error) => error.status }));
+
+      expect(yield* statusOf(authorize(request({}), "read"))).toBe(401);
+      const reader = request({ authorization: "Bearer reader" });
+      expect(yield* statusOf(authorize(reader, "read"))).toBe(200);
+      expect(yield* statusOf(authorize(reader, "operate"))).toBe(403);
+    }),
+  );
 });
