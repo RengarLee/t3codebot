@@ -28,6 +28,11 @@ on:
         required: false
         default: false
         type: boolean
+      build_only:
+        description: "Build and verify the installer as a run artifact without publishing a GitHub Release"
+        required: false
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       ref:
@@ -233,6 +238,9 @@ jobs:
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
+      - name: Rebrand as Steward
+        run: node scripts/bot-rebrand.ts
+
       - name: Build JS bundle
         env:
           T3CODE_TELEMETRY_CHANNEL: dev
@@ -273,7 +281,8 @@ jobs:
   publish_release:
     name: Publish Windows x64 GitHub Release & Auto-Update Feed
     needs: [preflight, desktop_win_x64]
-    if: ${{ always() && !cancelled() && needs.preflight.result == 'success' && needs.desktop_win_x64.result == 'success' }}
+    # Tag pushes and workflow_call leave build_only null, which must still publish; `!= true` keeps that.
+    if: ${{ always() && !cancelled() && needs.preflight.result == 'success' && needs.desktop_win_x64.result == 'success' && inputs.build_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

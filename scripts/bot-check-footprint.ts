@@ -38,6 +38,8 @@ const BOT_OWNED_PATTERNS: ReadonlyArray<RegExp> = [
 ];
 
 const BOT_OWNED_EXACT = new Set<string>([
+  // GitHub shows it in place of upstream's root README, which stays untouched.
+  ".github/README.md",
   "apps/server/src/botHostAdapter.ts",
   "apps/server/src/botHostAdapter.test.ts",
   "apps/web/src/components/bots/BotThreadDetails.tsx",
