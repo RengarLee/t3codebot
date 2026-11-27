@@ -1,16 +1,14 @@
 import { useState } from "react";
 
 import {
-  BOT_LESSONS_FILE,
-  BOT_LONG_TERM_MEMORY_FILE,
+  BOT_USER_MEMORY_FILE,
+  BOT_MEMORY_FILE,
   BOT_PERSONA_FILE,
-  type BotFilePath,
+  BOT_POLICY_FILE,
 } from "../contracts.ts";
-import { listBotDailyNotes } from "./apiClient.ts";
 import { BotFileEditor } from "./BotFileEditor.tsx";
 import type { BotMessageKey, BotTranslator } from "./i18n.ts";
 import { SKILL_CARD_CLASS } from "./skillUi.tsx";
-import { useSkillResource } from "./useSkillResource.ts";
 
 interface BotFileSectionProps {
   readonly botId: string;
@@ -52,7 +50,7 @@ export function BotPersonaSection({ botId, httpBaseUrl, t }: BotFileSectionProps
   );
 }
 
-type MemoryTab = "longTerm" | "lessons" | "daily";
+type MemoryTab = "bot" | "user" | "policy";
 
 const MEMORY_TABS: ReadonlyArray<{
   readonly id: MemoryTab;
@@ -60,77 +58,20 @@ const MEMORY_TABS: ReadonlyArray<{
   readonly description: BotMessageKey;
 }> = [
   {
-    id: "longTerm",
-    label: "bots.memory.tab.longTerm",
-    description: "bots.memory.longTerm.description",
+    id: "bot",
+    label: "bots.memory.tab.bot",
+    description: "bots.memory.bot.description",
   },
   {
-    id: "lessons",
-    label: "bots.memory.tab.lessons",
-    description: "bots.memory.lessons.description",
+    id: "user",
+    label: "bots.memory.tab.user",
+    description: "bots.memory.user.description",
   },
-  { id: "daily", label: "bots.memory.tab.daily", description: "bots.memory.daily.description" },
+  { id: "policy", label: "bots.memory.tab.policy", description: "bots.memory.policy.description" },
 ];
 
-function dailyLabel(path: BotFilePath): string {
-  return path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
-}
-
-function DailyNotes({ botId, httpBaseUrl, t }: BotFileSectionProps) {
-  const notes = useSkillResource(`${botId}:daily`, () => listBotDailyNotes(botId, { httpBaseUrl }));
-  const [picked, setPicked] = useState<BotFilePath | null>(null);
-
-  if (notes.data === null) {
-    return (
-      <p className="px-3 py-3 text-xs text-muted-foreground sm:px-4">
-        {notes.error === null ? t("bots.file.loading") : t("bots.file.loadFailed")}
-      </p>
-    );
-  }
-  const { daily } = notes.data;
-  if (daily.length === 0) {
-    return (
-      <p className="px-3 py-3 text-xs text-muted-foreground sm:px-4">
-        {t("bots.memory.daily.empty")}
-      </p>
-    );
-  }
-  const current = picked !== null && daily.includes(picked) ? picked : daily[0]!;
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 px-3 pt-3 sm:px-4">
-        <label className="text-xs font-medium text-foreground" htmlFor={`bot-daily-${botId}`}>
-          {t("bots.memory.daily.pick")}
-        </label>
-        <select
-          id={`bot-daily-${botId}`}
-          data-testid={`bot-daily-select-${botId}`}
-          value={current}
-          onChange={(event) => setPicked(event.currentTarget.value)}
-          className="h-7 rounded-lg border border-border bg-background px-2 font-mono text-xs text-foreground focus:border-ring focus:outline-none"
-        >
-          {daily.map((path) => (
-            <option key={path} value={path}>
-              {dailyLabel(path)}
-            </option>
-          ))}
-        </select>
-      </div>
-      <BotFileEditor
-        key={current}
-        botId={botId}
-        path={current}
-        label={`${t("bots.memory.tab.daily")} ${dailyLabel(current)}`}
-        httpBaseUrl={httpBaseUrl}
-        t={t}
-      />
-    </div>
-  );
-}
-
 export function BotMemorySection({ botId, httpBaseUrl, t }: BotFileSectionProps) {
-  const [tab, setTab] = useState<MemoryTab>("longTerm");
+  const [tab, setTab] = useState<MemoryTab>("bot");
 
   return (
     <section className="space-y-2.5" data-testid={`bot-memory-${botId}`}>
@@ -167,12 +108,18 @@ export function BotMemorySection({ botId, httpBaseUrl, t }: BotFileSectionProps)
         {MEMORY_TABS.map((entry) => (
           <div key={entry.id} role="tabpanel" hidden={entry.id !== tab}>
             <SectionNote>{t(entry.description)}</SectionNote>
-            {entry.id === "daily" ? (
-              <DailyNotes botId={botId} httpBaseUrl={httpBaseUrl} t={t} />
+            {entry.id === "policy" ? (
+              <BotFileEditor
+                botId={botId}
+                path={BOT_POLICY_FILE}
+                label={t(entry.label)}
+                httpBaseUrl={httpBaseUrl}
+                t={t}
+              />
             ) : (
               <BotFileEditor
                 botId={botId}
-                path={entry.id === "longTerm" ? BOT_LONG_TERM_MEMORY_FILE : BOT_LESSONS_FILE}
+                path={entry.id === "bot" ? BOT_MEMORY_FILE : BOT_USER_MEMORY_FILE}
                 label={t(entry.label)}
                 httpBaseUrl={httpBaseUrl}
                 t={t}

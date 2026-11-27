@@ -13,10 +13,12 @@ const skillRoots = {
   ownDir: "/bots/tutor/skills",
 };
 
+const emptyNotes = { soul: "", policy: "", memory: "", user: "" };
+
 const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owner) => {
   const context =
     owner === "main"
-      ? renderMainBotInstructions([], skillRoots)
+      ? renderMainBotInstructions([], skillRoots, emptyNotes)
       : renderSubBotInstructions(
           {
             name: "Tutor",
@@ -26,6 +28,7 @@ const senderCases: ReadonlyArray<McpToolUseCase> = ["main", "sub"].flatMap((owne
           },
           [],
           skillRoots,
+          emptyNotes,
         );
   return ["user", "agent"].map((sender) => ({
     id: `bot-session-${owner}-${sender}`,
@@ -115,7 +118,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
       request:
         "Keep Bot replies useful; receiving or forwarding another session's result is not useful information.",
     },
-    setup: { role: "top", context: renderMainBotInstructions([], skillRoots) },
+    setup: { role: "top", context: renderMainBotInstructions([], skillRoots, emptyNotes) },
     prompt: `Session finished (${scenario.status}): [任务详情](t3-thread://v1/example-session)\n${scenario.outcome}`,
     expect: {
       finalTextMust: scenario.must,
@@ -140,7 +143,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
         role: "top",
         context:
           owner === "main"
-            ? renderMainBotInstructions([], skillRoots)
+            ? renderMainBotInstructions([], skillRoots, emptyNotes)
             : renderSubBotInstructions(
                 {
                   name: "Tutor",
@@ -150,6 +153,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
                 },
                 [],
                 skillRoots,
+                emptyNotes,
               ),
       },
       prompt: withMessageSenderNote(
@@ -206,6 +210,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
           },
         ],
         skillRoots,
+        emptyNotes,
       ),
     },
     prompt: "帮我创建一个用来学习英语的助手，他可以看这个文件夹里的文件 /home/user/study/english",
@@ -242,6 +247,7 @@ export const botSessionCases: ReadonlyArray<McpToolUseCase> = [
         },
         [],
         skillRoots,
+        emptyNotes,
       ),
     },
     prompt: withMessageSenderNote(

@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
@@ -15,8 +16,9 @@ import {
   BOT_SKILLS_ROUTE_PREFIX,
   BOT_WORKING_FOLDERS_ROUTE_PREFIX,
   BotEnsureHomeResponseSchema,
-  BotFileListResponseSchema,
   BotFileResponseSchema,
+  BotFileHistoryResponseSchema,
+  type BotFileRestoreRequest,
   BotListResponseSchema,
   BotUpdateProfileResponseSchema,
   BotUpdateWorkingFoldersResponseSchema,
@@ -78,6 +80,43 @@ export function subscribeBotsServerStateChanged(listener: () => void): () => voi
   };
 }
 
+/** How a server accepts this client: the browser's session cookie, or a bearer token. */
+export type BotHttpAuthorization =
+  | { readonly _tag: "Cookie" }
+  | { readonly _tag: "Bearer"; readonly token: string };
+
+let resolveBotHttpAuthorization = (_httpBaseUrl: string | null): BotHttpAuthorization => ({
+  _tag: "Cookie",
+});
+
+/** The host names each server's credential; bot views pass only that server's base URL. */
+export function configureBotHttpAuthorization(
+  resolve: (httpBaseUrl: string | null) => BotHttpAuthorization,
+): void {
+  resolveBotHttpAuthorization = resolve;
+}
+
+/** Resolved per request so a rotated token is never stale. */
+function botHttpLayer(httpBaseUrl: string | null | undefined) {
+  const authorization = resolveBotHttpAuthorization(httpBaseUrl?.trim() || null);
+  if (authorization._tag === "Cookie") {
+    return Layer.merge(
+      FetchHttpClient.layer,
+      Layer.succeed(FetchHttpClient.RequestInit, { credentials: "include" }),
+    );
+  }
+  return Layer.merge(
+    Layer.effect(
+      HttpClient.HttpClient,
+      Effect.map(
+        HttpClient.HttpClient,
+        HttpClient.mapRequest(HttpClientRequest.bearerToken(authorization.token)),
+      ),
+    ).pipe(Layer.provide(FetchHttpClient.layer)),
+    Layer.succeed(FetchHttpClient.RequestInit, { credentials: "omit" }),
+  );
+}
+
 function buildBotUrl(route: string, httpBaseUrl?: string | null): string {
   const base = httpBaseUrl?.trim().replace(/\/+$/, "");
   return base ? `${base}${route}` : route;
@@ -93,7 +132,7 @@ export function fetchBotSessions(input: BotSessionsRequest, options?: BotApiClie
         Effect.flatMap(HttpClientResponse.filterStatusOk),
       );
       return yield* HttpClientResponse.schemaBodyJson(BotSessionsResponseSchema)(response);
-    }).pipe(Effect.provide(FetchHttpClient.layer)),
+    }).pipe(Effect.provide(botHttpLayer(options?.httpBaseUrl))),
   );
 }
 
@@ -102,7 +141,7 @@ export function fetchBotList(options?: BotApiClientOptions): Promise<BotListResp
     HttpClient.get(buildBotUrl(BOT_LIST_ROUTE, options?.httpBaseUrl)).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
       Effect.flatMap(HttpClientResponse.schemaBodyJson(BotListResponseSchema)),
-      Effect.provide(FetchHttpClient.layer),
+      Effect.provide(botHttpLayer(options?.httpBaseUrl)),
     ),
   );
 }
@@ -117,7 +156,7 @@ export function ensureBotHome(
     HttpClient.execute(HttpClientRequest.post(buildBotUrl(route, options?.httpBaseUrl))).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
       Effect.flatMap(HttpClientResponse.schemaBodyJson(BotEnsureHomeResponseSchema)),
-      Effect.provide(FetchHttpClient.layer),
+      Effect.provide(botHttpLayer(options?.httpBaseUrl)),
     ),
   );
 }
@@ -162,7 +201,7 @@ export async function updateBotWorkingFolders(
           ? payload.error
           : `Request failed with status ${response.status}.`;
       return yield* new BotApiRequestError({ status: response.status, detail });
-    }).pipe(Effect.provide(FetchHttpClient.layer)),
+    }).pipe(Effect.provide(botHttpLayer(options?.httpBaseUrl))),
   );
   notifyBotsServerStateChanged();
   return result;
@@ -194,7 +233,7 @@ export async function updateBotProfile(
           ? payload.error
           : `Request failed with status ${response.status}.`;
       return yield* new BotApiRequestError({ status: response.status, detail });
-    }).pipe(Effect.provide(FetchHttpClient.layer)),
+    }).pipe(Effect.provide(botHttpLayer(options?.httpBaseUrl))),
   );
   notifyBotsServerStateChanged();
   return result;
@@ -226,7 +265,7 @@ async function postCommand<A>(
           ? payload.error
           : `Request failed with status ${response.status}.`;
       return { ok: false as const, status: response.status, detail };
-    }).pipe(Effect.provide(FetchHttpClient.layer)),
+    }).pipe(Effect.provide(botHttpLayer(options?.httpBaseUrl))),
   );
   if (!outcome.ok) throw new BotApiRequestError({ status: outcome.status, detail: outcome.detail });
   return outcome.value;
@@ -258,11 +297,6 @@ function postFileCommand<A>(
     schema,
     options,
   );
-}
-
-/** The bot's daily memory notes, newest first. */
-export function listBotDailyNotes(botId: string, options?: BotApiClientOptions) {
-  return postFileCommand("list", { botId }, BotFileListResponseSchema, options);
 }
 
 export function readBotFile(botId: string, path: BotFilePath, options?: BotApiClientOptions) {
@@ -343,4 +377,14 @@ export function setSkillReviewEnabled(enabled: boolean, options?: BotApiClientOp
 /** Starts a review of the bot's unreviewed chats without waiting for them; ignores the switch. */
 export function startSkillReview(botId: string, options?: BotApiClientOptions) {
   return postSkillCommand("reviewNow", { botId }, SkillReviewNowResponseSchema, options);
+}
+
+export function readBotFileHistory(
+  input: Pick<BotFileRestoreRequest, "botId" | "path">,
+  options?: BotApiClientOptions,
+) {
+  return postFileCommand("history", input, BotFileHistoryResponseSchema, options);
+}
+export function restoreBotFile(input: BotFileRestoreRequest, options?: BotApiClientOptions) {
+  return postFileCommand("restore", input, BotFileResponseSchema, options);
 }

@@ -1,3 +1,4 @@
+import { readStandingNotes } from "./standingNotes.ts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -45,7 +46,12 @@ export const refreshSubBotInstructions = Effect.fn("bot.instructions.refreshSubB
         );
   yield* writeFileIfChanged(
     path.join(bot.path, "workspace", "AGENTS.md"),
-    renderSubBotInstructions(bot, codeProjects, botSkillRoots(path, bot)),
+    renderSubBotInstructions(
+      bot,
+      codeProjects,
+      botSkillRoots(path, bot),
+      yield* readStandingNotes(bot.path),
+    ),
   );
 });
 

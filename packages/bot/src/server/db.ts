@@ -13,6 +13,7 @@ import type * as Scope from "effect/Scope";
 import {
   DEFAULT_SKILL_REVIEW_SETTINGS,
   type BotHomeRecord,
+  type BotMemoryRevisionTrigger,
   type BotSessionReceipt,
   type SkillReviewSettings,
   type SkillTrigger,
@@ -91,6 +92,20 @@ export interface SkillReviewRecord {
 }
 
 export type NewSkillReview = Omit<SkillReviewRecord, "createdAt">;
+
+/** One row of a memory file's history. `scopeKey` is `user` (USER.md) or `bot:<id>` (its MEMORY.md). */
+export interface MemoryRevisionRecord {
+  readonly scopeKey: string;
+  readonly revision: number;
+  readonly content: string;
+  readonly contentHash: string;
+  readonly trigger: BotMemoryRevisionTrigger;
+  readonly reason: string;
+  readonly threadId: string | null;
+  readonly createdAt: string;
+}
+
+export type NewMemoryRevision = Omit<MemoryRevisionRecord, "createdAt">;
 
 /** The validated receipt a session last handed back, keyed by its T3 thread id. */
 export interface BotSessionReceiptRecord extends BotSessionReceipt {
@@ -196,6 +211,18 @@ export interface BotStoreShape {
     reviewThreadId: string,
   ) => Effect.Effect<SkillReviewRecord | null, BotStoreError>;
   readonly deleteSkillReview: (reviewThreadId: string) => Effect.Effect<void, BotStoreError>;
+  /** Fails when `(scopeKey, revision)` already exists, so two writers cannot both claim a number. */
+  readonly insertMemoryRevision: (
+    input: NewMemoryRevision,
+  ) => Effect.Effect<MemoryRevisionRecord, BotStoreError>;
+  readonly latestMemoryRevision: (
+    scopeKey: string,
+  ) => Effect.Effect<MemoryRevisionRecord | null, BotStoreError>;
+  /** Newest first. */
+  readonly listMemoryRevisions: (
+    scopeKey: string,
+    limit: number,
+  ) => Effect.Effect<ReadonlyArray<MemoryRevisionRecord>, BotStoreError>;
   readonly getSkillReviewSettings: () => Effect.Effect<SkillReviewSettings, BotStoreError>;
   readonly setSkillReviewSettings: (
     settings: SkillReviewSettings,
@@ -376,6 +403,24 @@ const MIGRATIONS: ReadonlyArray<Migration> = [
       );
     `,
   },
+  {
+    version: 8,
+    name: "memory_revisions",
+    sql: `
+      CREATE TABLE bot_memory_revisions (
+        scope_key TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        "trigger" TEXT NOT NULL
+          CHECK ("trigger" IN ('review', 'user_manual', 'migration', 'external')),
+        reason TEXT NOT NULL,
+        thread_id TEXT,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (scope_key, revision)
+      );
+    `,
+  },
 ];
 
 const SKILL_REVIEW_ENABLED_KEY = "skill_review_enabled";
@@ -447,6 +492,33 @@ interface RawSkillSuggestionRow {
 
 const SKILL_REVISION_COLUMNS = `scope_key, skill, revision, parent_revision, content, content_hash,
   "trigger" AS "trigger", reason, thread_id, bot_id, suggestion_id, created_at`;
+
+interface RawMemoryRevisionRow {
+  readonly scope_key: string;
+  readonly revision: number;
+  readonly content: string;
+  readonly content_hash: string;
+  readonly trigger: BotMemoryRevisionTrigger;
+  readonly reason: string;
+  readonly thread_id: string | null;
+  readonly created_at: string;
+}
+
+const MEMORY_REVISION_COLUMNS = `scope_key, revision, content, content_hash, "trigger" AS "trigger",
+  reason, thread_id, created_at`;
+
+function mapMemoryRevisionRow(row: RawMemoryRevisionRow): MemoryRevisionRecord {
+  return {
+    scopeKey: row.scope_key,
+    revision: row.revision,
+    content: row.content,
+    contentHash: row.content_hash,
+    trigger: row.trigger,
+    reason: row.reason,
+    threadId: row.thread_id,
+    createdAt: row.created_at,
+  };
+}
 
 const SKILL_SUGGESTION_COLUMNS = `id, scope_key, skill, action, signal, message, thread_id, bot_id,
   status, created_at, decided_at`;
@@ -939,6 +1011,51 @@ function createBotStoreFromDb(sqlitePath: string, db: NodeSqlite.DatabaseSync): 
     deleteSkillReview: (reviewThreadId) =>
       tryOp("deleteSkillReview", () => {
         db.prepare("DELETE FROM bot_skill_reviews WHERE review_thread_id = ?").run(reviewThreadId);
+      }),
+
+    insertMemoryRevision: Effect.fn("bot.db.insertMemoryRevision")(function* (input) {
+      const createdAt = yield* currentIsoNow;
+      return yield* tryOp("insertMemoryRevision", () => {
+        db.prepare(
+          `INSERT INTO bot_memory_revisions
+             (scope_key, revision, content, content_hash, "trigger", reason, thread_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          input.scopeKey,
+          input.revision,
+          input.content,
+          input.contentHash,
+          input.trigger,
+          input.reason,
+          input.threadId,
+          createdAt,
+        );
+        return { ...input, createdAt } satisfies MemoryRevisionRecord;
+      });
+    }),
+
+    latestMemoryRevision: (scopeKey) =>
+      tryOp("latestMemoryRevision", () => {
+        const row = db
+          .prepare(
+            `SELECT ${MEMORY_REVISION_COLUMNS} FROM bot_memory_revisions
+              WHERE scope_key = ?
+              ORDER BY revision DESC LIMIT 1`,
+          )
+          .get(scopeKey) as unknown as RawMemoryRevisionRow | undefined;
+        return row ? mapMemoryRevisionRow(row) : null;
+      }),
+
+    listMemoryRevisions: (scopeKey, limit) =>
+      tryOp("listMemoryRevisions", () => {
+        const rows = db
+          .prepare(
+            `SELECT ${MEMORY_REVISION_COLUMNS} FROM bot_memory_revisions
+              WHERE scope_key = ?
+              ORDER BY revision DESC LIMIT ?`,
+          )
+          .all(scopeKey, limit) as unknown as ReadonlyArray<RawMemoryRevisionRow>;
+        return rows.map(mapMemoryRevisionRow);
       }),
 
     getSkillReviewSettings: () =>

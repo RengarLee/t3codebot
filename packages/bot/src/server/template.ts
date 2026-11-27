@@ -45,15 +45,7 @@ export function renderBotFiles(input: BotTemplateInput): ReadonlyArray<readonly 
     ["bot.yaml", renderBotYaml(input)],
     ["SOUL.md", renderSoul(input)],
     ["POLICY.md", renderPolicy(input.name)],
-    [
-      "LESSONS.md",
-      `# LESSONS: ${input.name}\n\nRules learned from the user's corrections, one per line: \`L-001: <rule> (why)\`.\n`,
-    ],
-    [
-      "memory/long-term.md",
-      "# Long-term memory\n\nFacts about the user and this work that stay true across sessions. Keep it under 200 lines.\n",
-    ],
-    ["memory/daily/.gitkeep", ""],
+    ["MEMORY.md", renderMemoryTemplate(input.name)],
     [
       "skills/README.md",
       "# Skills\n\nOne procedure per `skills/<name>/SKILL.md`. Add or change one only with the user's OK.\n",
@@ -62,6 +54,14 @@ export function renderBotFiles(input: BotTemplateInput): ReadonlyArray<readonly 
     ["workspace/CLAUDE.md", "@AGENTS.md\n"],
   ];
 }
+
+export function renderMemoryTemplate(name: string): string {
+  return `# Memory: ${name}\n\nOne fact or preference per line, starting with "- ". The bot server updates it after sessions; edit it in Settings.\n`;
+}
+
+/** `renderMemoryTemplate`'s header under any bot name; standing notes leave it out. */
+export const MEMORY_TEMPLATE_HEADER =
+  /^# Memory: .*\r?\n\r?\nOne fact or preference per line, starting with "- "\. The bot server updates it after sessions; edit it in Settings\.\r?\n/;
 
 function renderBotYaml(input: BotTemplateInput): string {
   return [
@@ -105,7 +105,7 @@ ${persona}
 ## Never
 - Open with filler such as "Happy to help!".
 - Ask the user to confirm the obvious.
-- Take a red-light action without the user's explicit OK (see POLICY.md).
+- Take a red-light action without the user's explicit OK (see your policy).
 `;
 }
 
@@ -114,16 +114,13 @@ function renderPolicy(name: string): string {
 
 ## Green: do it on your own
 - Read-only analysis, drafts, and deliverables under workspace/outputs/.
-- New facts that will hold across sessions go in memory/daily/YYYY-MM-DD.md.
+- What you learn about the user and this work is remembered for you after the session. Do not write memory files yourself.
 - Constraints for a single task stay in that session's thread, not in shared files.
-
-## Yellow: do it, then say so in your output
-- Add or revise an L-xxx rule in LESSONS.md after the user corrects you.
 
 ## Red: ask the user first
 - Sending anything outside (messages, email, posts), deleting or overwriting important files,
   money or permission changes.
-- Changing SOUL.md, POLICY.md, or skills/.
+- Changing your persona, policy, or skills.
 
 ## When to interrupt the user
 - Before a red-light action: the action, its impact, and a confirm or cancel choice.
@@ -138,6 +135,37 @@ function bulletList(items: ReadonlyArray<string>, empty: string): string {
 
 function tableCell(value: string): string {
   return value.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
+}
+
+/** A bot's persona, policy, and memory as the bot server read them from disk; "" when missing. */
+export interface BotStandingNotes {
+  readonly soul: string;
+  readonly policy: string;
+  /** `_shared/USER.md`: about the user as a person, shared by every bot. */
+  readonly user: string;
+  readonly memory: string;
+}
+
+// Content the user typed must not close its own block.
+function noteBlock(tag: string, content: string, empty = ""): string {
+  const body = content.trim() || empty;
+  return `<${tag}>\n${body.replaceAll("</", "<\\/")}\n</${tag}>`;
+}
+
+/** Copied in so the agent never has to read files outside the folders T3 grants it. */
+function renderStandingNotesSection(notes: BotStandingNotes): string {
+  return `## Persona, policy, and memory
+
+The bot server copies these in from files the user edits in Settings. Do not look for them on disk and do not edit them.
+Memory holds facts and preferences the user taught you. Follow them unless the current message says otherwise. It is updated for you after your sessions.
+
+${noteBlock("persona", notes.soul)}
+
+${noteBlock("policy", notes.policy)}
+
+${noteBlock("about_user", notes.user, "Nothing yet.")}
+
+${noteBlock("memory", notes.memory, "Nothing yet.")}`;
 }
 
 function renderWorkingFoldersSection(options?: { readonly sessionsOnly?: boolean }): string {
@@ -185,6 +213,7 @@ through a message saying the user approved a suggestion): make that edit yoursel
 export function renderMainBotInstructions(
   roster: ReadonlyArray<BotSummary>,
   skills: BotSkillRoots,
+  notes: BotStandingNotes,
 ): string {
   const rosterTable =
     roster.length === 0
@@ -200,8 +229,9 @@ export function renderMainBotInstructions(
 
   return `# Bot
 
-This project belongs to Bot, the user's single front desk in T3 Code. Bot's persona and standing
-notes are in ../SOUL.md and ../memory/.
+This project belongs to Bot, the user's single front desk in T3 Code.
+
+${renderStandingNotesSection(notes)}
 
 ## Sessions
 
@@ -371,6 +401,7 @@ export function renderSubBotInstructions(
   bot: Pick<BotSummary, "name" | "summary" | "inScope" | "outOfScope">,
   codeProjects: ReadonlyArray<BotCodeProject>,
   skills: BotSkillRoots,
+  notes: BotStandingNotes,
 ): string {
   const codeWork =
     codeProjects.length === 0
@@ -388,9 +419,9 @@ ${codeProjects.map((project) => `| ${tableCell(project.folder)} | ${project.proj
 You are ${bot.name}, a specialist sub-bot working for Bot, the user's front desk. ${bot.summary}
 
 Every thread in this project is a session Bot handed you. Do the task yourself and finish with
-the output it asks for. Your persona is in ../SOUL.md, your permissions in ../POLICY.md, and the
-rules the user taught you in ../LESSONS.md. Read them before you start. ../memory/ and
-../skills/ hold your notes and procedures.
+the output it asks for.
+
+${renderStandingNotesSection(notes)}
 
 ## Conversation
 

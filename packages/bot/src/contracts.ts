@@ -424,9 +424,25 @@ export type SkillInboxEntry = typeof SkillInboxEntrySchema.Type;
 /** Title prefix of the throwaway thread a background review runs in; event sync ignores these threads. */
 export const SKILL_REVIEW_TITLE_PREFIX = "Skill review: ";
 
+export const BOT_MEMORY_OP_TEXT_MAX_LENGTH = 400;
+
 /**
- * What a background review hands back: at most one suggestion, or null. Only the reviewed bot's own
- * skills take part. The `_shared` skills are never reviewed, listed or suggested, so there is no scope.
+ * One change a review makes to memory. Scope `user` is `USER.md`, `bot` the reviewed bot's
+ * `MEMORY.md`. `old` is the exact text of the line to replace or remove ("" for add); `text` is the
+ * new line ("" for remove). Flat, so its JSON Schema stays strict-mode friendly.
+ */
+export const BotMemoryOpSchema = Schema.Struct({
+  op: Schema.Literals(["add", "replace", "remove"]),
+  scope: Schema.Literals(["bot", "user"]),
+  old: Schema.String.check(Schema.isMaxLength(BOT_MEMORY_OP_TEXT_MAX_LENGTH)),
+  text: Schema.String.check(Schema.isMaxLength(BOT_MEMORY_OP_TEXT_MAX_LENGTH)),
+});
+export type BotMemoryOp = typeof BotMemoryOpSchema.Type;
+
+/**
+ * What a background review hands back: at most one skill suggestion (or null) and at most three
+ * memory changes. Only the reviewed bot's own skills take part. The `_shared` skills are never
+ * reviewed, listed or suggested, so there is no scope.
  */
 export const SkillReviewResultSchema = Schema.Struct({
   skill: Schema.NullOr(
@@ -437,6 +453,7 @@ export const SkillReviewResultSchema = Schema.Struct({
       message: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(600)),
     }),
   ),
+  memory: Schema.Array(BotMemoryOpSchema).check(Schema.isMaxLength(3)),
 });
 export type SkillReviewResult = typeof SkillReviewResultSchema.Type;
 
@@ -444,7 +461,7 @@ export type SkillReviewResult = typeof SkillReviewResultSchema.Type;
 export const SKILL_REVIEW_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["skill"],
+  required: ["skill", "memory"],
   properties: {
     skill: {
       type: ["object", "null"],
@@ -464,10 +481,39 @@ export const SKILL_REVIEW_JSON_SCHEMA = {
         },
       },
     },
+    memory: {
+      type: "array",
+      maxItems: 3,
+      description: "At most three changes to memory. Empty when nothing is worth remembering.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["op", "scope", "old", "text"],
+        properties: {
+          op: { type: "string", enum: ["add", "replace", "remove"] },
+          scope: {
+            type: "string",
+            enum: ["bot", "user"],
+            description: "user: about the user as a person. bot: about this bot's work.",
+          },
+          old: {
+            type: "string",
+            maxLength: BOT_MEMORY_OP_TEXT_MAX_LENGTH,
+            description:
+              'For replace and remove: the exact text of the memory line, without "- ". Empty for add.',
+          },
+          text: {
+            type: "string",
+            maxLength: BOT_MEMORY_OP_TEXT_MAX_LENGTH,
+            description: "For add and replace: the new line, one short fact. Empty for remove.",
+          },
+        },
+      },
+    },
   },
 } as const;
 
-/** The user's switch for background review. It only ever proposes; the user still accepts. */
+/** The user's switch for background review and automatic memory updates. */
 export const SkillReviewSettingsSchema = Schema.Struct({ enabled: Schema.Boolean });
 export type SkillReviewSettings = typeof SkillReviewSettingsSchema.Type;
 export const DEFAULT_SKILL_REVIEW_SETTINGS: SkillReviewSettings = { enabled: true };
@@ -497,35 +543,41 @@ export const BOT_SKILL_COMMANDS = {
 } as const;
 export type BotSkillCommand = keyof typeof BOT_SKILL_COMMANDS;
 
-/** `POST /api/bots/files/<command>` reads and edits a bot's persona and memory files. */
+/** `POST /api/bots/files/<command>` reads and edits a bot's persona, policy, and memory files. */
 export const BOT_FILES_ROUTE_PREFIX = `${BOT_API_PREFIX}/files` as const;
 
 export const BOT_FILE_COMMANDS = {
-  list: "list",
   read: "read",
   save: "save",
+  history: "history",
+  restore: "restore",
 } as const;
 export type BotFileCommand = keyof typeof BOT_FILE_COMMANDS;
 
 export const BOT_PERSONA_FILE = "SOUL.md";
-export const BOT_LESSONS_FILE = "LESSONS.md";
-export const BOT_LONG_TERM_MEMORY_FILE = "memory/long-term.md";
-export const BOT_DAILY_MEMORY_DIR = "memory/daily";
+export const BOT_POLICY_FILE = "POLICY.md";
+/** One bot's memory: facts and preferences about its own work. */
+export const BOT_MEMORY_FILE = "MEMORY.md";
+/** Facts about the user as a person, shared by every bot (it lives in `_shared/`). */
+export const BOT_USER_MEMORY_FILE = "USER.md";
+/** A memory file's size cap in UTF-8 bytes; both are copied into every session's instructions. */
+export const BOT_MEMORY_MAX_BYTES = 4096;
+export const BOT_MEMORY_HISTORY_LIMIT = 50;
 
-/** The only files in a bot's folder these commands touch, by path relative to that folder. */
-export const BotFilePathSchema = Schema.String.check(
-  Schema.isPattern(
-    /^(?:SOUL\.md|LESSONS\.md|memory\/long-term\.md|memory\/daily\/\d{4}-\d{2}-\d{2}\.md)$/,
-  ),
-);
+/**
+ * The only files these commands touch. `USER.md` is the shared `_shared/USER.md` whatever the
+ * bot; the others are in that bot's folder.
+ */
+export const BotFilePathSchema = Schema.Literals([
+  BOT_PERSONA_FILE,
+  BOT_POLICY_FILE,
+  BOT_MEMORY_FILE,
+  BOT_USER_MEMORY_FILE,
+]);
 export type BotFilePath = typeof BotFilePathSchema.Type;
 
-export const BotFileListRequestSchema = Schema.Struct({ botId: Schema.String });
-/** Daily notes are listed by path, newest first; the fixed files are always editable. */
-export const BotFileListResponseSchema = Schema.Struct({
-  daily: Schema.Array(BotFilePathSchema),
-});
-export type BotFileListResponse = typeof BotFileListResponseSchema.Type;
+export const BotMemoryFilePathSchema = Schema.Literals([BOT_MEMORY_FILE, BOT_USER_MEMORY_FILE]);
+export type BotMemoryFilePath = typeof BotMemoryFilePathSchema.Type;
 
 export const BotFileReadRequestSchema = Schema.Struct({
   botId: Schema.String,
@@ -541,7 +593,7 @@ export const BotFileSchema = Schema.Struct({
 export type BotFile = typeof BotFileSchema.Type;
 export const BotFileResponseSchema = Schema.Struct({ file: BotFileSchema });
 
-/** Refused with 409 when the file changed since `expectedVersion` (the bot writes these too). */
+/** Refused with 409 when the file changed since `expectedVersion` (the bot server writes memory too). */
 export const BotFileSaveRequestSchema = Schema.Struct({
   botId: Schema.String,
   path: BotFilePathSchema,
@@ -549,3 +601,44 @@ export const BotFileSaveRequestSchema = Schema.Struct({
   expectedVersion: Schema.NullOr(Schema.String),
 });
 export type BotFileSaveRequest = typeof BotFileSaveRequestSchema.Type;
+
+/**
+ * Why a memory revision exists: a background review remembered something, the user edited it in
+ * Settings, the old memory files were moved in, or the file changed outside the bot server.
+ */
+export const BotMemoryRevisionTriggerSchema = Schema.Literals([
+  "review",
+  "user_manual",
+  "migration",
+  "external",
+]);
+export type BotMemoryRevisionTrigger = typeof BotMemoryRevisionTriggerSchema.Type;
+
+export const BotMemoryRevisionSchema = Schema.Struct({
+  revision: Schema.Int,
+  content: Schema.String,
+  trigger: BotMemoryRevisionTriggerSchema,
+  reason: Schema.String,
+  /** The chat a review remembered this from; null otherwise. */
+  threadId: Schema.NullOr(Schema.String),
+  createdAt: Schema.String,
+});
+export type BotMemoryRevision = typeof BotMemoryRevisionSchema.Type;
+
+export const BotFileHistoryRequestSchema = Schema.Struct({
+  botId: Schema.String,
+  path: BotMemoryFilePathSchema,
+});
+/** Newest first, at most `BOT_MEMORY_HISTORY_LIMIT`. */
+export const BotFileHistoryResponseSchema = Schema.Struct({
+  revisions: Schema.Array(BotMemoryRevisionSchema),
+});
+export type BotFileHistoryResponse = typeof BotFileHistoryResponseSchema.Type;
+
+export const BotFileRestoreRequestSchema = Schema.Struct({
+  botId: Schema.String,
+  path: BotMemoryFilePathSchema,
+  revision: Schema.Int,
+  expectedVersion: Schema.NullOr(Schema.String),
+});
+export type BotFileRestoreRequest = typeof BotFileRestoreRequestSchema.Type;
