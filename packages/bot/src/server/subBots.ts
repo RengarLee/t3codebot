@@ -31,7 +31,7 @@ export const createSubBot = Effect.fn("bot.subBot.create")(function* (
     summary: spec.summary,
     inScope: spec.inScope,
     outOfScope: spec.outOfScope,
-    persona: spec.persona,
+    instructions: spec.instructions,
     projects: folders,
     workingFolders,
   });

@@ -8,7 +8,7 @@ import {
   type SkillScope,
 } from "../contracts.ts";
 import { updateBotProfile, updateBotWorkingFolders } from "./apiClient.ts";
-import { BotMemorySection, BotPersonaSection } from "./BotMemorySection.tsx";
+import { BotInstructionsSection, BotMemorySection } from "./BotMemorySection.tsx";
 import { useBotList } from "./botList.ts";
 import { createBotTranslator, type BotMessageKey, type BotTranslator } from "./i18n.ts";
 import { useOpenBotHome } from "./openBotHome.ts";
@@ -510,7 +510,7 @@ function BotDetailView({
         onOpenThread={onOpenThread}
       />
 
-      <BotPersonaSection botId={bot.id} httpBaseUrl={httpBaseUrl} t={t} />
+      <BotInstructionsSection botId={bot.id} httpBaseUrl={httpBaseUrl} t={t} />
 
       <BotMemorySection botId={bot.id} httpBaseUrl={httpBaseUrl} t={t} />
 

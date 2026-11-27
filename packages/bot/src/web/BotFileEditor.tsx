@@ -10,6 +10,7 @@ export interface BotFileEditorProps {
   readonly botId: string;
   readonly path: BotFilePath;
   readonly label: string;
+  readonly placeholder?: string | undefined;
   readonly httpBaseUrl?: string | null | undefined;
   readonly t: BotTranslator;
 }
@@ -21,7 +22,7 @@ export function BotFileEditor(props: BotFileEditorProps) {
   return <FileEditor key={`${props.httpBaseUrl}:${props.botId}:${props.path}`} {...props} />;
 }
 
-function FileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEditorProps) {
+function FileEditor({ botId, path, label, placeholder, httpBaseUrl, t }: BotFileEditorProps) {
   const resource = useSkillResource(`${botId}:${path}`, () =>
     readBotFile(botId, path, { httpBaseUrl }),
   );
@@ -130,6 +131,7 @@ function FileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEditorProps) 
       <textarea
         aria-label={label}
         data-testid={`bot-file-editor-${path}`}
+        placeholder={placeholder}
         spellCheck={false}
         value={text}
         disabled={busy}
@@ -143,7 +145,7 @@ function FileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEditorProps) 
             if (dirty && !busy && saveState !== "conflict") void write(base.version);
           }
         }}
-        className="block min-h-48 w-full resize-y rounded-lg border border-border bg-background p-2.5 font-mono text-xs leading-normal text-foreground focus:border-ring focus:outline-none disabled:opacity-64"
+        className="block min-h-48 w-full resize-y rounded-lg border border-border bg-background p-2.5 font-mono text-xs leading-normal text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-64"
       />
       {saveState === "conflict" ? (
         <div

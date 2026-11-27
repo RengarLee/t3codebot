@@ -388,7 +388,7 @@ export const botHttpRoutesLayer = Layer.unwrap(
       ),
     );
 
-    // POST /api/bots/files/<command>: a bot's persona, lessons, and memory files.
+    // POST /api/bots/files/<command>: a bot's instructions and memory files.
     const filesRoute = addAuthorizedRoute(
       "operate",
       "POST",

@@ -33,7 +33,7 @@ All bot work must stay inside `packages/bot/` (and bot-owned files allowed by `s
 
 - A bot is a T3 project, and each of its sessions is a T3 thread opened in that project. Read session identity, status, lifecycle, and parent links from T3's native thread fields; never copy them into bot storage.
 - Never add bot tables, columns, or migrations to upstream `statev2.sqlite`.
-- Everything else a bot owns (definitions, persona and memory files, the Home window, per-session summaries keyed by thread id, tokens/app secrets, enable states) lives in the bot's own private store under `<stateDir>/bots/` (`bots.sqlite` / `bots-config.json` / `<bot-id>/`).
+- Everything else a bot owns (definitions, instructions and memory files, the Home window, per-session summaries keyed by thread id, tokens/app secrets, enable states) lives in the bot's own private store under `<stateDir>/bots/` (`bots.sqlite` / `bots-config.json` / `<bot-id>/`).
 - Treat tokens/secrets as write-only or masked on read—never echo raw secrets back to clients.
 - Use client `localStorage` (`packages/bot/src/web/preferences.ts`) strictly for per-device view state (e.g., whether the sidebar Bots section is expanded). This keeps desktop, web, remote, and future mobile clients consistent on one server state.
 

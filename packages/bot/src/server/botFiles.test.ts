@@ -23,28 +23,49 @@ const setup = Effect.gen(function* () {
 });
 
 describe("bot file commands", () => {
-  it.effect("reads and saves persona, lessons, and long-term memory", () =>
+  it.effect("reads and saves instructions and memory files", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { stateDir, bot } = yield* setup;
 
-      for (const file of ["SOUL.md", "POLICY.md", "MEMORY.md"]) {
-        const { file: loaded } = decodeFile(
-          yield* runBotFileCommand(stateDir, "read", { botId: bot.id, path: file }),
-        );
-        expect(loaded.version).not.toBeNull();
-        const { file: saved } = decodeFile(
-          yield* runBotFileCommand(stateDir, "save", {
-            botId: bot.id,
-            path: file,
-            content: `# ${file}\n新内容\n`,
-            expectedVersion: loaded.version,
-          }),
-        );
-        expect(saved.version).not.toBe(loaded.version);
-        expect(yield* fs.readFileString(path.join(bot.path, file))).toBe(`# ${file}\n新内容\n`);
-      }
+      const { file: initialInstructions } = decodeFile(
+        yield* runBotFileCommand(stateDir, "read", { botId: bot.id, path: "INSTRUCTIONS.md" }),
+      );
+      expect(initialInstructions).toEqual({
+        path: "INSTRUCTIONS.md",
+        content: "",
+        version: null,
+      });
+      const { file: savedInstructions } = decodeFile(
+        yield* runBotFileCommand(stateDir, "save", {
+          botId: bot.id,
+          path: "INSTRUCTIONS.md",
+          content: "Be concise.\n",
+          expectedVersion: null,
+        }),
+      );
+      expect(savedInstructions.version).not.toBeNull();
+      expect(yield* fs.readFileString(path.join(bot.path, "INSTRUCTIONS.md"))).toBe(
+        "Be concise.\n",
+      );
+
+      const { file: loadedMemory } = decodeFile(
+        yield* runBotFileCommand(stateDir, "read", { botId: bot.id, path: "MEMORY.md" }),
+      );
+      expect(loadedMemory.version).not.toBeNull();
+      const { file: savedMemory } = decodeFile(
+        yield* runBotFileCommand(stateDir, "save", {
+          botId: bot.id,
+          path: "MEMORY.md",
+          content: "# MEMORY.md\n新内容\n",
+          expectedVersion: loadedMemory.version,
+        }),
+      );
+      expect(savedMemory.version).not.toBe(loadedMemory.version);
+      expect(yield* fs.readFileString(path.join(bot.path, "MEMORY.md"))).toBe(
+        "# MEMORY.md\n新内容\n",
+      );
     }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );
 
@@ -73,7 +94,14 @@ describe("bot file commands", () => {
   it.effect("rejects paths outside the editable files and unknown bots", () =>
     Effect.gen(function* () {
       const { stateDir, bot } = yield* setup;
-      for (const bad of ["bot.yaml", "LESSONS.md", "../other/SOUL.md", "memory/daily/../../x.md"]) {
+      for (const bad of [
+        "SOUL.md",
+        "POLICY.md",
+        "bot.yaml",
+        "LESSONS.md",
+        "../other/INSTRUCTIONS.md",
+        "memory/daily/../../x.md",
+      ]) {
         const error = yield* runBotFileCommand(stateDir, "read", {
           botId: bot.id,
           path: bad,
@@ -82,7 +110,7 @@ describe("bot file commands", () => {
       }
       const missing = yield* runBotFileCommand(stateDir, "read", {
         botId: "nope",
-        path: "SOUL.md",
+        path: "INSTRUCTIONS.md",
       }).pipe(Effect.flip);
       expect(missing._tag).toBe("BotNotFoundError");
     }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
