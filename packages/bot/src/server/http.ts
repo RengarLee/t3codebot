@@ -26,7 +26,7 @@ import { runBotFileCommand } from "./botFiles.ts";
 import { openBotStore, type BotHome } from "./db.ts";
 import { startBotEventSyncWorker } from "./eventSync.ts";
 import { ensureBotHome, type BotHomeDeps } from "./home.ts";
-import { BotServerHost } from "./host.ts";
+import { BotServerHost, type BotRequestAccess } from "./host.ts";
 import { refreshBotsForSkills } from "./instructions.ts";
 import { updateBotProfile } from "./profile.ts";
 import { ensureMainBotInStateDir, listStateDirBots } from "./registry.ts";
@@ -155,6 +155,22 @@ export const botHttpRoutesLayer = Layer.unwrap(
         );
     }
 
+    // The host's own routes sit behind its auth; these mount beside them, so they check here.
+    const addAuthorizedRoute = <E, R>(
+      access: BotRequestAccess,
+      method: "GET" | "POST",
+      path: HttpRouter.PathInput,
+      handler: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+    ) =>
+      HttpRouter.add(method, path, (request) =>
+        host.authorize(request, access).pipe(
+          Effect.matchEffect({
+            onFailure: (error) => Effect.succeed(jsonError(error.detail, error.status)),
+            onSuccess: () => handler,
+          }),
+        ),
+      );
+
     const healthRoute = HttpRouter.add(
       "GET",
       BOT_HEALTH_ROUTE,
@@ -164,7 +180,8 @@ export const botHttpRoutesLayer = Layer.unwrap(
       }),
     );
 
-    const sessionsRoute = HttpRouter.add(
+    const sessionsRoute = addAuthorizedRoute(
+      "read",
       "POST",
       BOT_SESSIONS_ROUTE,
       Effect.gen(function* () {
@@ -192,7 +209,8 @@ export const botHttpRoutesLayer = Layer.unwrap(
       ),
     );
 
-    const listBotsRoute = HttpRouter.add(
+    const listBotsRoute = addAuthorizedRoute(
+      "read",
       "GET",
       BOT_LIST_ROUTE,
       Effect.gen(function* () {
@@ -214,7 +232,8 @@ export const botHttpRoutesLayer = Layer.unwrap(
     );
 
     // POST /api/bots/home/:botId
-    const homeRoute = HttpRouter.add(
+    const homeRoute = addAuthorizedRoute(
+      "operate",
       "POST",
       `${BOT_HOME_ROUTE_PREFIX}/*`,
       Effect.gen(function* () {
@@ -234,7 +253,8 @@ export const botHttpRoutesLayer = Layer.unwrap(
     );
 
     // POST /api/bots/working-folders/:botId (POST stays within T3's CORS allowed methods).
-    const workingFoldersRoute = HttpRouter.add(
+    const workingFoldersRoute = addAuthorizedRoute(
+      "operate",
       "POST",
       `${BOT_WORKING_FOLDERS_ROUTE_PREFIX}/*`,
       Effect.gen(function* () {
@@ -274,7 +294,8 @@ export const botHttpRoutesLayer = Layer.unwrap(
     );
 
     // POST /api/bots/profile/:botId (POST stays within T3's CORS allowed methods).
-    const profileRoute = HttpRouter.add(
+    const profileRoute = addAuthorizedRoute(
+      "operate",
       "POST",
       `${BOT_PROFILE_ROUTE_PREFIX}/*`,
       Effect.gen(function* () {
@@ -313,7 +334,8 @@ export const botHttpRoutesLayer = Layer.unwrap(
     );
 
     // POST /api/bots/skills/<command>: skill list, history, edits, and suggestions.
-    const skillsRoute = HttpRouter.add(
+    const skillsRoute = addAuthorizedRoute(
+      "operate",
       "POST",
       `${BOT_SKILLS_ROUTE_PREFIX}/*`,
       Effect.gen(function* () {
@@ -344,7 +366,8 @@ export const botHttpRoutesLayer = Layer.unwrap(
     const filesLock = yield* Semaphore.make(1);
 
     // POST /api/bots/files/<command>: a bot's persona, lessons, and memory files.
-    const filesRoute = HttpRouter.add(
+    const filesRoute = addAuthorizedRoute(
+      "operate",
       "POST",
       `${BOT_FILES_ROUTE_PREFIX}/*`,
       Effect.gen(function* () {

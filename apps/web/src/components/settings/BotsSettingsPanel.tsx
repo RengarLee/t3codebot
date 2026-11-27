@@ -1,3 +1,4 @@
+import { configureBotHttpAuthorization } from "@t3tools/bot/web/apiClient";
 import { BotsSettingsView } from "@t3tools/bot/web/BotsSettingsView";
 import { createBotTranslator } from "@t3tools/bot/web/i18n";
 import { updateBotClientPreferences, useBotClientPreferences } from "@t3tools/bot/web/preferences";
@@ -14,8 +15,12 @@ import {
   usePrimaryEnvironmentId,
 } from "../../state/environments";
 import { BotAddFolderDialog } from "../bots/BotAddFolderDialog";
+import { readBotHttpAuthorization } from "../bots/botHttpAuthorization";
 import { Switch } from "../ui/switch";
 import { SettingsPageContainer, SettingsRow } from "./settingsLayout";
+
+// Both bot entry points load with the app, so the first bot request already carries a credential.
+configureBotHttpAuthorization(readBotHttpAuthorization);
 
 export function BotsSettingsPanel() {
   const { locale } = useSyncExternalStore(subscribeI18n, getI18nSnapshot);

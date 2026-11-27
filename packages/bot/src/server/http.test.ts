@@ -7,15 +7,21 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as HttpRouter from "effect/http/HttpRouter";
 
 import {
+  BOT_FILES_ROUTE_PREFIX,
   BOT_HEALTH_ROUTE,
+  BOT_LIST_ROUTE,
+  BOT_PERSONA_FILE,
+  BOT_PROFILE_ROUTE_PREFIX,
   BOT_SESSION_RECEIPT_JSON_SCHEMA,
   BOT_WORKING_FOLDERS_UPDATE_JSON_SCHEMA,
   BotHealthResponseSchema,
   MAIN_BOT_ID,
 } from "../contracts.ts";
-import { createBotHealthPayload } from "./http.ts";
+import { BotHostAuthError, BotServerHost, type BotServerHostShape } from "./host.ts";
+import { botHttpRoutesLayer, createBotHealthPayload } from "./http.ts";
 import {
   createBotInStateDir,
   ensureMainBotInStateDir,
@@ -190,6 +196,74 @@ describe("bot server module", () => {
           [MAIN_BOT_ID, "main"],
           [sub.id, "sub"],
         ].sort(([a], [b]) => String(a).localeCompare(String(b))),
+      );
+    }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
+  );
+  it.effect("refuses bot routes without a credential that grants the access", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const stateDir = yield* fs.makeTempDirectoryScoped();
+      const authorize: BotServerHostShape["authorize"] = (request, access) => {
+        const credential = request.headers.authorization;
+        if (credential === undefined) {
+          return Effect.fail(new BotHostAuthError({ status: 401, detail: "Missing credential." }));
+        }
+        return access === "operate" && credential !== "Bearer operator"
+          ? Effect.fail(new BotHostAuthError({ status: 403, detail: "Read-only session." }))
+          : Effect.void;
+      };
+      const routes = botHttpRoutesLayer.pipe(
+        Layer.provide(Layer.succeed(BotServerHost, { stateDir, authorize })),
+        Layer.provide(nodeLayer),
+      );
+      const send = (path: string, init: { method?: string; token?: string; body?: unknown }) =>
+        new Request(`http://localhost${path}`, {
+          method: init.method ?? "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(init.token === undefined ? {} : { authorization: `Bearer ${init.token}` }),
+          },
+          ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+        });
+      // The web handler runs on its own runtime, so route handlers read services from each request.
+      const services = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
+      const overwrite = {
+        botId: MAIN_BOT_ID,
+        path: BOT_PERSONA_FILE,
+        content: "pwned",
+        expectedVersion: null,
+      };
+
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() => HttpRouter.toWebHandler(routes, { disableLogger: true })),
+        (web) =>
+          Effect.promise(async () => {
+            const handler = (request: Request) => web.handler(request, services);
+            expect((await handler(send(BOT_HEALTH_ROUTE, { method: "GET" }))).status).toBe(200);
+            const save = `${BOT_FILES_ROUTE_PREFIX}/save`;
+            expect((await handler(send(save, { body: overwrite }))).status).toBe(401);
+            expect((await handler(send(save, { token: "reader", body: overwrite }))).status).toBe(
+              403,
+            );
+            const rename = send(`${BOT_PROFILE_ROUTE_PREFIX}/${MAIN_BOT_ID}`, {
+              token: "reader",
+              body: { name: "Renamed" },
+            });
+            expect((await handler(rename)).status).toBe(403);
+            expect(
+              (await handler(send(BOT_LIST_ROUTE, { method: "GET", token: "reader" }))).status,
+            ).toBe(200);
+
+            const read = await handler(
+              send(`${BOT_FILES_ROUTE_PREFIX}/read`, {
+                token: "operator",
+                body: { botId: MAIN_BOT_ID, path: BOT_PERSONA_FILE },
+              }),
+            );
+            expect(read.status).toBe(200);
+            expect(JSON.stringify(await read.json())).not.toContain("pwned");
+          }),
+        ({ dispose }) => Effect.promise(() => dispose()),
       );
     }).pipe(Effect.scoped, Effect.provide(nodeLayer)),
   );

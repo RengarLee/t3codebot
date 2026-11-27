@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type * as Stream from "effect/Stream";
+import type { HttpServerRequest } from "effect/http";
 import type { BotSessionsRequest, BotSessionsResponse } from "../contracts.ts";
 
 export class BotHostError extends Schema.TaggedError<
@@ -173,9 +174,29 @@ export interface BotHostOrchestrationShape {
   readonly subscribeThreadEvents: () => Stream.Stream<BotHostThreadLifecycleEvent, BotHostError>;
 }
 
+/** `read` lists bots and sessions; `operate` changes bot state or reads private bot files. */
+export type BotRequestAccess = "read" | "operate";
+
+export class BotHostAuthError extends Schema.TaggedError<
+  BotHostAuthError,
+  { readonly brand: unique symbol }
+>()("BotHostAuthError", {
+  status: Schema.Literals([401, 403]),
+  detail: Schema.String,
+}) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
 export interface BotServerHostShape {
   readonly stateDir: string;
   readonly orchestration?: BotHostOrchestrationShape | undefined;
+  /** Accepts the request's credential for the access, as the host's own routes would. */
+  readonly authorize: (
+    request: HttpServerRequest.HttpServerRequest,
+    access: BotRequestAccess,
+  ) => Effect.Effect<void, BotHostAuthError>;
 }
 
 /**

@@ -1,3 +1,4 @@
+import { configureBotHttpAuthorization } from "@t3tools/bot/web/apiClient";
 import {
   useBotList,
   useBotProjectIds,
@@ -12,6 +13,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useSyncExternalStore } from "react";
 
 import { getI18nSnapshot, subscribeI18n } from "../../i18n/runtime";
+import { readBotHttpAuthorization } from "../bots/botHttpAuthorization";
 import {
   useProject,
   useServerConfigs,
@@ -40,6 +42,9 @@ import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { Tooltip, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+
+// Both bot entry points load with the app, so the first bot request already carries a credential.
+configureBotHttpAuthorization(readBotHttpAuthorization);
 
 export function SidebarBotsBar() {
   const { locale } = useSyncExternalStore(subscribeI18n, getI18nSnapshot);
