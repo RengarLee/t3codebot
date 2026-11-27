@@ -335,7 +335,7 @@ describe("bot session receipts", () => {
         summary: "Ships small fixes.",
         inScope: ["bug fixes"],
         outOfScope: ["research -> Researcher"],
-        persona: "A careful engineer.",
+        instructions: "Keep diffs minimal and always run targeted tests.",
         projects: [repo, "relative/ignored"],
       };
       const projectsByRoot = new Map<string, string>();
@@ -397,6 +397,9 @@ describe("bot session receipts", () => {
         path.join(coder?.path ?? "", "workspace", "AGENTS.md"),
       );
       expect(instructions).toContain(`| ${repo} | project:${repo} |`);
+      expect(instructions).toContain(
+        "<instructions>\nKeep diffs minimal and always run targeted tests.\n</instructions>",
+      );
       const mainInstructions = yield* fs.readFileString(
         path.join(stateDir, "bots", "main", "workspace", "AGENTS.md"),
       );
@@ -432,7 +435,6 @@ describe("bot session receipts", () => {
           summary: "Helps practice English.",
           inScope: ["English practice"],
           outOfScope: ["code changes"],
-          persona: "Patient language coach.",
           projects: [],
           workingFolders: [missingDir],
         };

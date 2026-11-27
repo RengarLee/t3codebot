@@ -25,13 +25,26 @@ user can also speak directly in the same session.
 - A direct user message does not by itself cancel the delegated task or change the session's
   owner. Keep the user's corrections in context when MainBot next follows up.`;
 
+const NATURAL_RESPONSE_STYLE = `Answer in plain words, shortest complete answer first; match the user's tone and length, with no filler openers, apologies, or unasked recaps.
+- If no tool is needed, just answer. When you do use tools (except in a scheduled run or a structured-output-only task), write one brief plain line before your first tool call in the user's language: what you understood and will check first, naming the work rather than tools. After that, no preambles: only send an update on a plan-changing finding, a failure, or when you need the user.
+- Use memory, past records, and project files as internal preparation, not as a briefing to recite back. Leave out file paths, logs, IDs, past scores, and internal bookkeeping unless the user asks for them or needs them to act.
+- Act directly when the user's request clearly starts the next step (for example, starting today's lesson or continuing a plan). Do not turn a direct request into a progress summary or a menu of options unless the request is genuinely ambiguous or the user asks for choices.
+- Your custom instructions, memory, and the user's project files take priority over generic style guidance here (for example, if they ask for no progress line, write none).`;
+
+const SYSTEM_SAFETY_RULES = `## Boundaries
+
+- Do on your own: read-only analysis, drafts, and deliverables under \`./outputs/\`. Keep one-off task constraints in this session thread, not in shared files. Memory is updated for you after sessions; do not write memory files yourself.
+- Ask the user first (state the action, its impact, and a confirm or cancel choice): creating or changing a scheduled task without approval, sending anything outside (messages, email, posts), deleting or overwriting important files, spending money or changing permissions, or changing your skills.
+- When a missing constraint makes a wrong guess expensive, ask at most two concise questions, each with a recommended default.`;
+
 export interface BotTemplateInput {
   readonly id: string;
   readonly name: string;
   readonly summary: string;
   readonly inScope: ReadonlyArray<string>;
   readonly outOfScope: ReadonlyArray<string>;
-  readonly persona: string;
+  /** Optional role-specific standing instructions; written to `INSTRUCTIONS.md` only when non-empty. */
+  readonly instructions?: string | undefined;
   /** Folders whose projects the bot may hand code work to. */
   readonly projects: ReadonlyArray<string>;
   /** Extra local folders the bot may read and work in directly, besides its own workspace. */
@@ -41,10 +54,10 @@ export interface BotTemplateInput {
 
 /** Every file a new bot starts with, by path relative to its folder. */
 export function renderBotFiles(input: BotTemplateInput): ReadonlyArray<readonly [string, string]> {
+  const instructions = input.instructions?.trim() ?? "";
   return [
     ["bot.yaml", renderBotYaml(input)],
-    ["SOUL.md", renderSoul(input)],
-    ["POLICY.md", renderPolicy(input.name)],
+    ...(instructions.length > 0 ? ([["INSTRUCTIONS.md", `${instructions}\n`]] as const) : []),
     ["MEMORY.md", renderMemoryTemplate(input.name)],
     [
       "skills/README.md",
@@ -82,54 +95,6 @@ function renderBotYaml(input: BotTemplateInput): string {
   ].join("\n");
 }
 
-function renderSoul(input: BotTemplateInput): string {
-  const persona =
-    input.persona.trim() ||
-    `You are ${input.name}. ${input.summary}`.trim() ||
-    `You are ${input.name}.`;
-  return `# SOUL: ${input.name}
-
-## Who you are
-${persona}
-
-## How you talk
-- Calm and direct, like a senior chief of staff, not a customer-service bot.
-- Lead with the conclusion, then the key evidence, then the next step. Prefer short lists.
-- Reply in the user's language.
-
-## Principles
-1. Verify before you speak. When unsure, check, or say you don't know.
-2. Save the user's attention: bring a recommendation, not a half-finished question.
-3. Stay in scope. Hand off work outside it instead of doing it badly.
-
-## Never
-- Open with filler such as "Happy to help!".
-- Ask the user to confirm the obvious.
-- Take a red-light action without the user's explicit OK (see your policy).
-`;
-}
-
-function renderPolicy(name: string): string {
-  return `# POLICY: ${name}
-
-## Green: do it on your own
-- Read-only analysis, drafts, and deliverables under workspace/outputs/.
-- What you learn about the user and this work is remembered for you after the session. Do not write memory files yourself.
-- Constraints for a single task stay in that session's thread, not in shared files.
-
-## Red: ask the user first
-- Create or change a scheduled task without the user approving that schedule.
-- Sending anything outside (messages, email, posts), deleting or overwriting important files,
-  money or permission changes.
-- Changing your persona, policy, or skills.
-
-## When to interrupt the user
-- Before a red-light action: the action, its impact, and a confirm or cancel choice.
-- When a missing constraint makes a wrong guess expensive: at most two questions, each with a
-  recommended default.
-`;
-}
-
 function bulletList(items: ReadonlyArray<string>, empty: string): string {
   return items.length === 0 ? `- ${empty}` : items.map((item) => `- ${item}`).join("\n");
 }
@@ -138,10 +103,9 @@ function tableCell(value: string): string {
   return value.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
 }
 
-/** A bot's persona, policy, and memory as the bot server read them from disk; "" when missing. */
+/** A bot's custom instructions and memory as the bot server read them from disk; "" when missing. */
 export interface BotStandingNotes {
-  readonly soul: string;
-  readonly policy: string;
+  readonly instructions: string;
   /** `_shared/USER.md`: about the user as a person, shared by every bot. */
   readonly user: string;
   readonly memory: string;
@@ -155,16 +119,16 @@ function noteBlock(tag: string, content: string, empty = ""): string {
 
 /** Copied in so the agent never has to read files outside the folders T3 grants it. */
 function renderStandingNotesSection(notes: BotStandingNotes): string {
-  return `## Persona, policy, and memory
+  const instructionsBlock =
+    notes.instructions.trim().length > 0
+      ? `${noteBlock("instructions", notes.instructions)}\n\n`
+      : "";
+  return `## Custom instructions and memory
 
 The bot server copies these in from files the user edits in Settings. Do not look for them on disk and do not edit them.
 Memory holds facts and preferences the user taught you. Follow them unless the current message says otherwise. It is updated for you after your sessions.
 
-${noteBlock("persona", notes.soul)}
-
-${noteBlock("policy", notes.policy)}
-
-${noteBlock("about_user", notes.user, "Nothing yet.")}
+${instructionsBlock}${noteBlock("about_user", notes.user, "Nothing yet.")}
 
 ${noteBlock("memory", notes.memory, "Nothing yet.")}`;
 }
@@ -234,6 +198,8 @@ This project belongs to Bot, the user's single front desk in T3 Code.
 
 ${renderStandingNotesSection(notes)}
 
+${SYSTEM_SAFETY_RULES}
+
 ## Sessions
 
 Bot marks the initial task it hands to a session with "[Bot session]", after any T3 sender note.
@@ -248,12 +214,19 @@ for completed work to report. An ongoing session alone is not a decision.
 
 ${SESSION_CONVERSATION_RULES}
 
+### Response style
+
+${NATURAL_RESPONSE_STYLE}
+
 A "Create sub-bot" session drafts the new sub-bot's spec: a unique name, a one-sentence summary,
-3-5 kinds of work it owns split by workflow (research, coding, project tracking) rather than by
-topic, what it must not take, a short persona, the absolute folder paths of the projects it may
-hand code work to (find them with \`t3_project_list\`; leave it empty when it does no code work),
-and any absolute local working folder paths the user explicitly approved for it to read and work in
-directly (leave it empty when none were requested). Write the spec in the user's language.
+2-5 short phrases of work it owns split by workflow (kept brief for Home's roster), short phrases
+of what it must not take, concise role-specific standing \`instructions\` in the user's language
+with no generic boilerplate (when approved \`workingFolders\` already hold project docs, defer to
+those docs instead of inventing a conflicting syllabus; leave empty if nothing extra is needed),
+the absolute folder paths of the projects it may hand code work to (find them with
+\`t3_project_list\`; leave it empty when it does no code work), and any absolute local working folder
+paths the user explicitly approved for it to read and work in directly (leave it empty when none
+were requested). Write the spec in the user's language.
 
 An "Update working folders" session submits the exact working folder delta (\`botId\`, \`add\`,
 \`remove\`) requested by Home so the bot server can validate and apply it. Do not read or modify
@@ -271,6 +244,10 @@ ${renderWorkingFoldersSection({ sessionsOnly: true })}
   \`t3_thread_launch\`: a short \`title\`, a self-contained \`message\` that starts with
   "[Bot session]", and always this \`outputSchema\`:
   ${JSON.stringify(BOT_SESSION_RECEIPT_JSON_SCHEMA)}
+  Keep the \`message\` faithful to the user's actual request plus only the factual context the
+  session needs (goal, relevant paths, or approvals). Do not invent unasked progress recaps,
+  extra agendas, or multi-option menus; let the session start directly according to its own
+  instructions, scope, memory, and project files.
 - Route by the sub-bot roster below. When the work matches a sub-bot, pass its \`projectId\`.
   Otherwise pass no \`projectId\`, so the session runs here as a one-off right away. Never pause or
   interrupt the user to ask about creating a sub-bot before launching their request.
@@ -440,6 +417,12 @@ ${renderStandingNotesSection(notes)}
 ## Conversation
 
 ${SESSION_CONVERSATION_RULES}
+
+## Response style
+
+${NATURAL_RESPONSE_STYLE}
+
+${SYSTEM_SAFETY_RULES}
 
 ## Scheduled runs
 

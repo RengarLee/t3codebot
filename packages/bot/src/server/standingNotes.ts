@@ -27,8 +27,7 @@ export const readStandingNotes = Effect.fn("bot.memory.readStandingNotes")(funct
       ),
     );
   return {
-    soul: yield* read(path.join(folder, "SOUL.md")),
-    policy: yield* read(path.join(folder, "POLICY.md")),
+    instructions: yield* read(path.join(folder, "INSTRUCTIONS.md")),
     memory: boundedMemory(yield* read(path.join(folder, "MEMORY.md"))),
     user: boundedMemory(
       yield* read(path.join(path.dirname(folder), "_shared", "memory", "USER.md")),
