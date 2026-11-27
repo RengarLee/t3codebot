@@ -16,8 +16,9 @@ import {
   BOT_SKILLS_ROUTE_PREFIX,
   BOT_WORKING_FOLDERS_ROUTE_PREFIX,
   BotEnsureHomeResponseSchema,
-  BotFileListResponseSchema,
   BotFileResponseSchema,
+  BotFileHistoryResponseSchema,
+  type BotFileRestoreRequest,
   BotListResponseSchema,
   BotUpdateProfileResponseSchema,
   BotUpdateWorkingFoldersResponseSchema,
@@ -298,11 +299,6 @@ function postFileCommand<A>(
   );
 }
 
-/** The bot's daily memory notes, newest first. */
-export function listBotDailyNotes(botId: string, options?: BotApiClientOptions) {
-  return postFileCommand("list", { botId }, BotFileListResponseSchema, options);
-}
-
 export function readBotFile(botId: string, path: BotFilePath, options?: BotApiClientOptions) {
   return postFileCommand("read", { botId, path }, BotFileResponseSchema, options);
 }
@@ -381,4 +377,14 @@ export function setSkillReviewEnabled(enabled: boolean, options?: BotApiClientOp
 /** Starts a review of the bot's unreviewed chats without waiting for them; ignores the switch. */
 export function startSkillReview(botId: string, options?: BotApiClientOptions) {
   return postSkillCommand("reviewNow", { botId }, SkillReviewNowResponseSchema, options);
+}
+
+export function readBotFileHistory(
+  input: Pick<BotFileRestoreRequest, "botId" | "path">,
+  options?: BotApiClientOptions,
+) {
+  return postFileCommand("history", input, BotFileHistoryResponseSchema, options);
+}
+export function restoreBotFile(input: BotFileRestoreRequest, options?: BotApiClientOptions) {
+  return postFileCommand("restore", input, BotFileResponseSchema, options);
 }

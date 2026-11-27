@@ -66,6 +66,7 @@
     }
   },
   "scripts": {
+    "eval:memory": "node evals/run.ts",
     "typecheck": "effect-tsgo tsrs --noEmit",
     "test": "vp test run --config ../../vite.config.ts --dir ."
   },

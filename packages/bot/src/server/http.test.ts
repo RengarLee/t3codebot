@@ -142,7 +142,7 @@ describe("bot server module", () => {
       expect(created.name).toBe("代码评审助手");
       expect(created.summary).toBe("盯 PR 和测试回归");
       expect(created.status).toBe("active");
-      for (const file of ["SOUL.md", "POLICY.md", "LESSONS.md", "memory/long-term.md"]) {
+      for (const file of ["SOUL.md", "POLICY.md", "MEMORY.md"]) {
         expect(yield* fs.exists(`${created.path}/${file}`)).toBe(true);
       }
 

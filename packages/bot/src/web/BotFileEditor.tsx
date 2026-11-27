@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { BotFile, BotFilePath } from "../contracts.ts";
-import { readBotFile, saveBotFile } from "./apiClient.ts";
+import { readBotFile, saveBotFile, readBotFileHistory, restoreBotFile } from "./apiClient.ts";
 import type { BotTranslator } from "./i18n.ts";
 import { SKILL_BUTTON_CLASS, SKILL_PRIMARY_BUTTON_CLASS } from "./skillUi.tsx";
 import { skillErrorStatus, useSkillResource } from "./useSkillResource.ts";
@@ -17,10 +17,16 @@ export interface BotFileEditorProps {
 type SaveState = "idle" | "saving" | "saved" | "failed" | "conflict";
 
 /** Edits one of a bot's markdown files. The bot writes these too, so saves are refused when stale. */
-export function BotFileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEditorProps) {
+export function BotFileEditor(props: BotFileEditorProps) {
+  return <FileEditor key={`${props.httpBaseUrl}:${props.botId}:${props.path}`} {...props} />;
+}
+
+function FileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEditorProps) {
   const resource = useSkillResource(`${botId}:${path}`, () =>
     readBotFile(botId, path, { httpBaseUrl }),
   );
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [saved, setSaved] = useState<BotFile | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -55,6 +61,7 @@ export function BotFileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEdi
         { botId, path, content: text, expectedVersion },
         { httpBaseUrl },
       );
+      setHistoryVersion((value) => value + 1);
       setSaved(file);
       setDraft(null);
       setSaveState("saved");
@@ -82,6 +89,44 @@ export function BotFileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEdi
 
   return (
     <div className="space-y-2 px-3 py-3 sm:px-4">
+      {(path === "MEMORY.md" || path === "USER.md") && (
+        <>
+          <button
+            type="button"
+            className={SKILL_BUTTON_CLASS}
+            aria-expanded={historyOpen}
+            onClick={() => setHistoryOpen(!historyOpen)}
+          >
+            {t("bots.file.history")}
+          </button>
+          {historyOpen && (
+            <MemoryHistory
+              key={historyVersion}
+              botId={botId}
+              path={path}
+              httpBaseUrl={httpBaseUrl}
+              t={t}
+              disabled={dirty || busy || saveState === "conflict"}
+              dirty={dirty}
+              onRestore={async (revision) => {
+                setSaveState("saving");
+                try {
+                  const { file } = await restoreBotFile(
+                    { botId, path, revision, expectedVersion: base.version },
+                    { httpBaseUrl },
+                  );
+                  setSaved(file);
+                  setDraft(null);
+                  setSaveState("saved");
+                  setHistoryVersion((value) => value + 1);
+                } catch (error) {
+                  setSaveState(skillErrorStatus(error) === 409 ? "conflict" : "failed");
+                }
+              }}
+            />
+          )}
+        </>
+      )}
       <textarea
         aria-label={label}
         data-testid={`bot-file-editor-${path}`}
@@ -110,13 +155,15 @@ export function BotFileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEdi
             <button type="button" className={SKILL_BUTTON_CLASS} onClick={loadLatest}>
               {t("bots.file.loadLatest")}
             </button>
-            <button
-              type="button"
-              className={SKILL_PRIMARY_BUTTON_CLASS}
-              onClick={() => void keepMine()}
-            >
-              {t("bots.file.keepMine")}
-            </button>
+            {dirty && (
+              <button
+                type="button"
+                className={SKILL_PRIMARY_BUTTON_CLASS}
+                onClick={() => void keepMine()}
+              >
+                {t("bots.file.keepMine")}
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -150,6 +197,55 @@ export function BotFileEditor({ botId, path, label, httpBaseUrl, t }: BotFileEdi
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function MemoryHistory({
+  botId,
+  path,
+  httpBaseUrl,
+  t,
+  disabled,
+  dirty,
+  onRestore,
+}: Omit<BotFileEditorProps, "path" | "label"> & {
+  path: "MEMORY.md" | "USER.md";
+  disabled: boolean;
+  dirty: boolean;
+  onRestore: (revision: number) => Promise<void>;
+}) {
+  const history = useSkillResource(`${httpBaseUrl}:${botId}:${path}`, () =>
+    readBotFileHistory({ botId, path }, { httpBaseUrl }),
+  );
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3 text-xs">
+      {dirty && <p>{t("bots.file.historyDraft")}</p>}
+      {history.loading && <p>{t("bots.file.loading")}</p>}
+      {history.error !== null && (
+        <button type="button" className={SKILL_BUTTON_CLASS} onClick={history.reload}>
+          {t("bots.file.retry")}
+        </button>
+      )}
+      {history.data?.revisions.length === 0 && <p>{t("bots.file.historyEmpty")}</p>}
+      {history.data?.revisions.map((entry) => (
+        <details key={entry.revision}>
+          <summary className="cursor-pointer">
+            <time dateTime={entry.createdAt}>{entry.createdAt}</time> · {entry.reason} ·{" "}
+            {t(`bots.file.source.${entry.trigger}`)}
+          </summary>
+          {entry.threadId && <p className="break-all">{entry.threadId}</p>}
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap py-2">{entry.content}</pre>
+          <button
+            type="button"
+            className={SKILL_BUTTON_CLASS}
+            disabled={disabled}
+            onClick={() => void onRestore(entry.revision)}
+          >
+            {t("bots.file.restore")}
+          </button>
+        </details>
+      ))}
     </div>
   );
 }
