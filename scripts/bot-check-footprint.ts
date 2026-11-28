@@ -38,6 +38,9 @@ const BOT_OWNED_PATTERNS: ReadonlyArray<RegExp> = [
 ];
 
 const BOT_OWNED_EXACT = new Set<string>([
+  "scripts/local-desktop.ts",
+  "scripts/local-desktop.test.ts",
+  "docs/operations/local-desktop.md",
   "apps/server/src/botHostAdapter.ts",
   "apps/server/src/botHostAdapter.test.ts",
   "apps/web/src/components/bots/BotThreadDetails.tsx",
@@ -72,6 +75,8 @@ const BANNED_UPSTREAM_PATTERNS: ReadonlyArray<{ readonly pattern: RegExp; readon
  * `null` means auto-generated file (regenerated automatically on upstream sync).
  */
 export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | null>> = {
+  // Three command aliases expose the fork's local desktop workflow without upstream runtime changes.
+  "package.json": 3,
   // Fork branch policy must be visible to agents starting at the repository root.
   "AGENTS.md": 4,
   // The fork's update-and-start action must be registered in the root project config.
