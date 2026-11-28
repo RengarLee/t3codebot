@@ -3,13 +3,24 @@
 Run commands from the repository root after installing dependencies.
 
 Use `vp run local:test` to start the development desktop with isolated data in
-`.t3/local-test/userdata`. Development state may be seeded from a read-only snapshot
-of production data; later changes remain separate. `local:desktop` is an alias.
+`~/.t3/local-test/<checkout-name>-<path-hash>/userdata`. Each checkout keeps its own
+state outside the repository so threads without a project remain available.
+`local:desktop` is an alias. Earlier `.t3/local-test` data stays in place; the new
+location starts fresh.
+
+Frontend changes update in place. Server changes rebuild automatically and restart
+the development desktop, as desktop-shell changes already do. Wait for active turns
+to finish before editing server code: a restart interrupts them.
 
 Use `vp run local:publish` from an external terminal to build and replace the installed
 Windows application. This uses the full desktop packaging pipeline, including its
 Python, Rust, and Visual Studio prerequisites. It does not wait for GitHub CI.
 See [Windows installer prerequisites](00_development.md#windows-installer-prerequisites).
+
+If the bundle self-check reports an ancestor `node_modules`, use a temporary directory
+outside that tree. In PowerShell, set both `$env:TEMP` and `$env:TMP` to an existing
+directory whose parents contain no `node_modules`, then rerun `local:publish` in that
+terminal. Keep the self-check enabled: it verifies the app includes its dependencies.
 
 The default installation is `%LOCALAPPDATA%/Programs/t3code`. Override it with
 `--install-dir <directory>`. Pass `--wsl-runtime <archive>` when packaging WSL support.

@@ -5,9 +5,34 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { deploymentScript } from "./local-desktop.ts";
+import { deploymentScript, localTestHome } from "./local-desktop.ts";
 
 it.layer(NodeServices.layer)("local desktop deployment", (it) => {
+  it.effect("keeps each checkout's test home outside the repository and production data", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const fs = yield* FileSystem.FileSystem;
+      const fixture = yield* fs.makeTempDirectoryScoped({ prefix: "t3-local-home-" });
+      const userHome = path.join(fixture, "user");
+      const root = path.join(userHome, "repos", "app");
+      const home = yield* localTestHome(root).pipe(
+        Effect.provideService(HostProcess.HomeDirectory, userHome),
+      );
+      assert.isFalse(home.startsWith(root + path.sep));
+      assert.notEqual(home, path.join(userHome, ".t3"));
+      const other = yield* localTestHome(path.join(userHome, "worktrees", "app")).pipe(
+        Effect.provideService(HostProcess.HomeDirectory, userHome),
+      );
+      assert.notEqual(home, other);
+      assert.equal(
+        home,
+        yield* localTestHome(path.join(root, ".")).pipe(
+          Effect.provideService(HostProcess.HomeDirectory, userHome),
+        ),
+      );
+    }),
+  );
+
   it.effect.each([true, false])("preserves data and handles launch success=%s", (launchSucceeds) =>
     Effect.gen(function* () {
       if ((yield* HostProcess.Platform) !== "win32") return;
