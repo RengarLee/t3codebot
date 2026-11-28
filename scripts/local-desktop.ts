@@ -6,6 +6,7 @@ import * as DateTime from "effect/DateTime";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Hash from "effect/Hash";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/cli";
@@ -100,6 +101,13 @@ Write-Output "Updated application. Backup: $backup"
 `;
 }
 
+export const localTestHome = Effect.fn("localDesktop.localTestHome")(function* (root: string) {
+  const path = yield* Path.Path;
+  const checkout = path.resolve(root);
+  const key = `${path.basename(checkout)}-${(Hash.string(checkout) >>> 0).toString(16)}`;
+  return path.join(yield* HostProcess.HomeDirectory, ".t3", "local-test", key);
+});
+
 const testCommand = Command.make("test", {}, () =>
   Effect.gen(function* () {
     const path = yield* Path.Path;
@@ -108,7 +116,7 @@ const testCommand = Command.make("test", {}, () =>
       "scripts/dev-runner.ts",
       "dev:desktop",
       "--home-dir",
-      path.join(root, ".t3", "local-test"),
+      yield* localTestHome(root),
     ]);
   }),
 );

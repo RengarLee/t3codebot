@@ -538,14 +538,14 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             port: undefined,
             devUrl: undefined,
           }).pipe(
-            Effect.provideService(HostProcess.HomeDirectory, "/home/dev"),
+            Effect.provideService(HostProcess.HomeDirectory, path.resolve("/home/dev")),
             Effect.map((env) => env.T3CODE_HOME),
           );
 
-        assert.equal(yield* homeFor("~/t3-dev"), path.join("/home/dev", "t3-dev"));
-        assert.equal(yield* homeFor("~"), "/home/dev");
-        assert.equal(yield* homeFor("~\\t3-dev"), path.join("/home/dev", "t3-dev"));
-        assert.equal(yield* homeFor("  ~/t3-dev  "), path.join("/home/dev", "t3-dev"));
+        assert.equal(yield* homeFor("~/t3-dev"), path.resolve("/home/dev", "t3-dev"));
+        assert.equal(yield* homeFor("~"), path.resolve("/home/dev"));
+        assert.equal(yield* homeFor("~\\t3-dev"), path.resolve("/home/dev", "t3-dev"));
+        assert.equal(yield* homeFor("  ~/t3-dev  "), path.resolve("/home/dev", "t3-dev"));
         assert.equal(yield* homeFor("~someone/t3-dev"), path.resolve("~someone/t3-dev"));
         assert.equal(yield* homeFor("relative/t3-dev"), path.resolve("relative/t3-dev"));
         assert.equal(yield* homeFor("/tmp/t3-dev"), path.resolve("/tmp/t3-dev"));

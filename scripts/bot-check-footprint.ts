@@ -77,6 +77,12 @@ const BANNED_UPSTREAM_PATTERNS: ReadonlyArray<{ readonly pattern: RegExp; readon
 export const ALLOWED_UPSTREAM_GLUE_BUDGETS: Readonly<Record<string, number | null>> = {
   // Three command aliases expose the fork's local desktop workflow without upstream runtime changes.
   "package.json": 3,
+  // Desktop dev shares its initial build with the server bundle watcher.
+  "vite.config.ts": 11,
+  "scripts/dev-runner.ts": 2,
+  "scripts/dev-runner.test.ts": 10,
+  // Local Windows packaging includes the prepared server bytecode in its file budget.
+  "scripts/build-desktop-artifact.ts": 3,
   // Fork branch policy must be visible to agents starting at the repository root.
   "AGENTS.md": 4,
   // The fork's update-and-start action must be registered in the root project config.

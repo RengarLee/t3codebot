@@ -102,6 +102,17 @@ export default defineConfig({
     cache: taskCacheConfig,
     tasks: {
       ...cachedTestTasks(process.env.T3_CACHED_TESTS),
+      "dev:desktop:watch": {
+        command: 'node -e ""',
+        dependsOn: ["@t3tools/desktop#dev", "@t3tools/web#dev", "dev:desktop:server"],
+        cache: false,
+      },
+      "dev:desktop:server": {
+        command: "vp pack --watch --no-clean",
+        cwd: "apps/server",
+        dependsOn: ["t3#build"],
+        cache: false,
+      },
       // The two knip passes read the same files and write nothing, so they run side by side.
       // The `knip:check` script runs this task, so `vp run knip:check` and `pnpm run knip:check` both use it.
       "knip:check:all": {
